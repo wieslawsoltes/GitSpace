@@ -22,8 +22,9 @@ public sealed partial class WorkbenchView
     {
         toolbar.RowDefinitions.Add(new() { Height = new GridLength(39) }); toolbar.RowDefinitions.Add(new() { Height = GridLength.Auto });
         _reviewBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Padding = new Thickness(0, 2, 0, 5) };
-        var mode = new ComboBox { ItemsSource = new[] { "All changes", "Unstaged changes", "Staged changes" }, SelectedIndex = _reviewMode == "all" ? 0 : _reviewMode == "unstaged" ? 1 : 2, FontSize = 11, Width = 165, MinHeight = 28 };
-        AutomationProperties.SetName(mode, "Diff review mode"); _reviewBar.Children.Add(mode);
+        var mode = new GitSegmentedSelector("Diff review mode", ("All", "All changes"), ("Unstaged", "Unstaged changes"), ("Staged", "Staged changes"))
+            { SelectedIndex = _reviewMode == "all" ? 0 : _reviewMode == "unstaged" ? 1 : 2 };
+        _reviewBar.Children.Add(mode);
         mode.SelectionChanged += (_, _) => _ = Guard(async () =>
         {
             _reviewMode = mode.SelectedIndex == 0 ? "all" : mode.SelectedIndex == 1 ? "unstaged" : "staged";

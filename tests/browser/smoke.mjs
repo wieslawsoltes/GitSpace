@@ -8,11 +8,15 @@ const { unzipSync } = createRequire(new URL('../../src/GitSpace.BrowserGit/packa
 const output = 'artifacts/browser-tests'; await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ headless: true, args: ['--enable-unsafe-swiftshader', '--disable-dev-shm-usage'] });
 const page = await browser.newPage({ viewport: { width: 1360, height: 860 }, acceptDownloads: true });
-const messages = [], errors = []; let passed = 0;
+const messages = [], errors = []; let passed = 0, activeCheck = '', failure = '';
 const fileText = 'Created in the browser\nUnicode: zażółć\n';
 page.on('console', message => { messages.push(message.type() + ': ' + message.text()); if (message.text().includes('[GitSpace]')) console.log(message.text()); });
 page.on('pageerror', error => errors.push(error.stack || String(error)));
-async function check(name, action) { console.log('START ' + name); await action(); passed++; console.log('PASS ' + name); }
+async function check(name, action) {
+  activeCheck = name; console.log('START ' + name);
+  try { await action(); passed++; console.log('PASS ' + name); }
+  catch (error) { failure = String(error.stack || error); throw error; }
+}
 async function accessibility() { const enable = page.locator('#uno-enable-accessibility'); if (await enable.count()) await enable.dispatchEvent('click'); await page.waitForTimeout(500); }
 async function click(name, role = 'button') {
   const item = page.getByRole(role, { name, exact: true }).first(); await item.waitFor({ state: 'attached', timeout: 10000 });
@@ -31,10 +35,7 @@ async function input(name, value) {
 }
 async function menu(title, item) { await click(title); await click(item, 'menuitem'); }
 async function reviewMode(index) {
-  const control = page.getByRole('combobox', { name: 'Diff review mode', exact: true });
-  await control.dispatchEvent('click');
-  await page.getByRole('option', { name: ['All changes', 'Unstaged changes', 'Staged changes'][index], exact: true }).dispatchEvent('click');
-  if (await control.getAttribute('aria-expanded') === 'true') await control.dispatchEvent('click');
+  await activateDialog(['All changes', 'Unstaged changes', 'Staged changes'][index]);
   await page.waitForFunction(value => gitspaceDiagnostics.reviewMode === value, ['all', 'unstaged', 'staged'][index]);
 }
 async function ready() { await page.waitForFunction(() => globalThis.gitspaceDiagnostics?.ready && !gitspaceDiagnostics.busy, null, { timeout: 90000 }); }
@@ -82,6 +83,14 @@ try {
     await click('Select all changed files', 'checkbox');
     await page.waitForFunction(() => document.querySelector('[aria-label="Select all changed files"]').getAttribute('aria-checked') === 'true');
     assert.equal(await page.getByRole('checkbox', { name: 'Select all changed files', exact: true }).isChecked(), true);
+  });
+  await check('review mode supports one-click selection and keyboard navigation', async () => {
+    await click('Unstaged changes');
+    await page.waitForFunction(() => gitspaceDiagnostics.reviewMode === 'unstaged');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(() => gitspaceDiagnostics.reviewMode === 'staged');
+    await page.keyboard.press('Home');
+    await page.waitForFunction(() => gitspaceDiagnostics.reviewMode === 'all');
   });
   await page.screenshot({ path: output + '/01-changes-dark.png', fullPage: true });
   await check('History tab shows real commit changes', async () => { await click('History'); await page.waitForFunction(() => gitspaceDiagnostics.history); });
@@ -151,7 +160,7 @@ try {
 } finally {
   await page.screenshot({ path: output + '/last-state.png', fullPage: true }).catch(() => {});
   await writeFile(output + '/console.log', messages.join('\n')); await writeFile(output + '/errors.json', JSON.stringify(errors, null, 2));
-  await writeFile(output + '/report.json', JSON.stringify({ passed, errors }, null, 2));
+  await writeFile(output + '/report.json', JSON.stringify({ passed, activeCheck, failure, errors }, null, 2));
   await writeFile(output + '/dom.html', await page.content());
   await writeFile(output + '/state.json', JSON.stringify(await page.evaluate(() => globalThis.gitspaceDiagnostics || null), null, 2));
   await browser.close();
