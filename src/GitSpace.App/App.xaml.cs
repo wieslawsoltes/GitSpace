@@ -26,7 +26,7 @@ public sealed partial class App : Application
             var platform = new AppPlatform(); _workbench = new WorkbenchView(platform); _window.Content = _workbench;
             await _workbench.InitializeAsync();
             _workbench.StateChanged += (_, _) => PublishDiagnostics(); PublishDiagnostics();
-            _window.Activated += async (_, e) => { if (e.WindowActivationState != WindowActivationState.Deactivated && _workbench is not null) await _workbench.RefreshOnActivationAsync(); };
+            _window.Activated += async (_, e) => { if (e.WindowActivationState != Windows.UI.Core.CoreWindowActivationState.Deactivated && _workbench is not null) await _workbench.RefreshOnActivationAsync(); };
             _window.Closed += async (_, _) => { if (_workbench is not null) await _workbench.DisposeAsync(); };
             Console.WriteLine("[GitSpace] Repository workbench ready.");
         }
