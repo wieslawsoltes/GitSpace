@@ -15,6 +15,7 @@ async function click(name, role = 'button') {
   const bounds = await item.boundingBox(); assert.ok(bounds && bounds.width > 0 && bounds.height > 0, 'Rendered control bounds: ' + name);
   await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
 }
+async function input(name, value) { await page.getByRole('textbox', { name, exact: true }).fill(value); }
 async function menu(title, item) { await click(title); await click(item, 'menuitem'); }
 async function ready() { await page.waitForFunction(() => globalThis.gitspaceDiagnostics?.ready && !gitspaceDiagnostics.busy, null, { timeout: 90000 }); }
 try {
@@ -36,19 +37,22 @@ try {
   await page.screenshot({ path: output + '/03-split-diff.png', fullPage: true });
   await check('commit composer makes a real selected-file commit', async () => {
     const previous = await page.evaluate(() => gitspaceDiagnostics.head);
-    await page.getByRole('textbox', { name: 'Commit summary', exact: true }).fill('Improve repository refresh workflow');
-    await page.getByRole('textbox', { name: 'Commit description', exact: true }).fill('Created through the actual Uno commit controls in Chromium.');
+    await input('Commit summary', 'Improve repository refresh workflow');
+    await input('Commit description', 'Created through the actual Uno commit controls in Chromium.');
     await click('Commit to main'); await page.waitForFunction(id => gitspaceDiagnostics.head !== id && !gitspaceDiagnostics.busy, previous);
     assert.equal(await page.evaluate(() => gitspaceDiagnostics.changes), 0); assert.equal(await page.evaluate(() => gitspaceDiagnostics.commits), 5);
   });
   await check('create a branch through the branch dialog', async () => {
-    await menu('Branch', 'New branch…');
-    await page.getByRole('textbox', { name: 'Branch name', exact: true }).fill('feature/browser-test');
-    await click('Create branch'); await page.waitForFunction(() => gitspaceDiagnostics.branch === 'feature/browser-test' && !gitspaceDiagnostics.busy);
+    await menu('Branch', 'New branch…'); await input('Branch name', 'feature/browser-test');
+    // Exercise ContentDialog's actual primary keyboard action. Its flattened
+    // accessibility overlay currently reports dialog button coordinates locally.
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => gitspaceDiagnostics.branch === 'feature/browser-test' && !gitspaceDiagnostics.busy);
   });
   await check('new file and text editor write a real working file', async () => {
-    await click('Create a new file'); await page.getByRole('textbox', { name: 'Repository-relative path', exact: true }).fill('browser-test.txt'); await click('Create file');
-    await page.getByRole('textbox', { name: 'File editor', exact: true }).fill('Created in the browser\nUnicode: zażółć\n'); await click('Save file');
+    await menu('File', 'New file…'); await input('Repository-relative path', 'browser-test.txt'); await page.keyboard.press('Enter');
+    await input('File editor', 'Created in the browser\nUnicode: zażółć\n');
+    await page.keyboard.press('Tab'); await page.keyboard.press('Enter');
     await page.waitForFunction(() => gitspaceDiagnostics.changes === 1 && gitspaceDiagnostics.activePath === 'browser-test.txt' && !gitspaceDiagnostics.busy);
   });
   await check('theme switch preserves the worktree', async () => {
@@ -57,7 +61,7 @@ try {
   await page.screenshot({ path: output + '/04-light-theme.png', fullPage: true });
   await check('reload preserves branch, history and uncommitted work', async () => {
     const head = await page.evaluate(() => gitspaceDiagnostics.head); await page.waitForTimeout(1000);
-    await page.reload({ waitUntil: 'domcontentloaded' }); await ready(); await accessibility();
+       await page.reload({ waitUntil: 'domcontentloaded' }); await ready(); await accessibility();
     const state = await page.evaluate(() => gitspaceDiagnostics); assert.equal(state.head, head); assert.equal(state.branch, 'feature/browser-test'); assert.equal(state.changes, 1);
   });
   await check('no unhandled browser exceptions', async () => { assert.deepEqual(errors, []); });

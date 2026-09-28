@@ -41,6 +41,13 @@ jobs:
         run: dotnet publish src/GitSpace.App -f net10.0-browserwasm -c Release -p:GitSpaceTargetFrameworks=net10.0-browserwasm -p:WasmShellWebAppBasePath=/GitSpace/ -o artifacts/browser
       - name: Stage static site
         run: python3 tools/prepare-pages.py artifacts/browser artifacts/site
+      - name: Preserve the actual published build for reproducible UI diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-published-build
+          path: artifacts/site
+          include-hidden-files: true
+          retention-days: 7
       - name: Native and portable regression gate
         run: dotnet run --project tests/GitSpace.Tests -c Release
       - name: Install Chromium test tools
@@ -83,6 +90,7 @@ jobs:
         with:
           name: gitspace-browser
           path: artifacts/site
+          include-hidden-files: true
       - uses: actions/upload-artifact@v4
         with:
           name: source-distribution

@@ -36,11 +36,11 @@ public sealed class DesktopGitBackend : IGitBackend
                     else await _git.RunAsync(target, ["clone", "--", GitSafety.HttpsRemote(request.Value), "."], cancellation).ConfigureAwait(false);
                 }
                 var result = await _git.RunAsync(target, ["rev-parse", "--show-toplevel"], cancellation).ConfigureAwait(false);
-                _root = Path.GetFullPath(result.Output.Trim());
+                _root = RepositoryPath.CanonicalDirectory(result.Output.Trim());
                 return new() { Snapshot = await Snapshot(cancellation).ConfigureAwait(false) };
             }
             if (string.IsNullOrEmpty(_root)) throw new InvalidOperationException("Open a repository first.");
-            if (request.Root.Length != 0 && !string.Equals(Path.GetFullPath(request.Root), _root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) throw new InvalidOperationException("Repository changed; refresh before continuing.");
+            if (request.Root.Length != 0 && !RepositoryPath.SameDirectory(request.Root, _root)) throw new InvalidOperationException("Repository changed; refresh before continuing.");
             if (op is not ("refresh" or "diff" or "read" or "commitFiles") && request.ExpectedHead.Length != 0 && request.ExpectedHead != await Optional(cancellation, "rev-parse", "--verify", "HEAD").ConfigureAwait(false))
                 throw new InvalidOperationException("HEAD changed outside GitSpace. Refresh and review before retrying.");
             switch (op)
@@ -52,8 +52,7 @@ public sealed class DesktopGitBackend : IGitBackend
                     await File.WriteAllTextAsync(full, request.Message, new UTF8Encoding(false), cancellation).ConfigureAwait(false); break;
                 case "diff": return await Diff(request, cancellation).ConfigureAwait(false);
                 case "commitFiles": return new() { Changes = await CommitFiles(GitSafety.CommitId(request.Value), cancellation).ConfigureAwait(false) };
-                case "stage":
-                    await Stage(request.Paths, cancellation).ConfigureAwait(false); break;
+                case "stage": await Stage(request.Paths, cancellation).ConfigureAwait(false); break;
                 case "unstage":
                     foreach (var path in request.Paths)
                     {
@@ -213,9 +212,9 @@ public sealed class DesktopGitBackend : IGitBackend
     private async Task Demo(CancellationToken ct)
     {
         _root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GitSpace", "Tutorial");
-        if (Directory.Exists(Path.Combine(_root, ".git"))) return;
+        if (Directory.Exists(Path.Combine(_root, ".git"))) { _root = RepositoryPath.CanonicalDirectory(_root); return; }
         if (Directory.Exists(_root) && Directory.EnumerateFileSystemEntries(_root).Any()) throw new IOException("Tutorial folder exists but is not a Git repository. Choose a different repository.");
-        Directory.CreateDirectory(_root); await Run(ct, "init", "--initial-branch=main").ConfigureAwait(false);
+        Directory.CreateDirectory(_root); _root = RepositoryPath.CanonicalDirectory(_root); await Run(ct, "init", "--initial-branch=main").ConfigureAwait(false);
         await Run(ct, "config", "user.name", "GitSpace Team").ConfigureAwait(false); await Run(ct, "config", "user.email", "team@gitspace.example").ConfigureAwait(false);
         foreach (var (path, text, message) in Tutorial.Files)
         {
@@ -229,4 +228,3 @@ public sealed class DesktopGitBackend : IGitBackend
         }
     }
     public ValueTask DisposeAsync() { _git.Dispose(); _gate.Dispose(); return ValueTask.CompletedTask; }
-}
