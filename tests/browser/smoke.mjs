@@ -31,7 +31,17 @@ async function activateDialog(name) {
 }
 async function input(name, value) {
   const field = page.getByRole('textbox', { name, exact: true });
-  await field.fill(value); assert.equal(await field.inputValue(), value); await page.waitForTimeout(100);
+  await field.waitFor({ state: 'visible' });
+  await field.focus();
+  // Opening/focusing a Uno popup asynchronously transfers its managed selection
+  // to the native text bridge. Let that handoff finish before replacing text.
+  await page.waitForTimeout(250);
+  await field.fill('');
+  await page.waitForTimeout(100);
+  assert.equal(await field.inputValue(), '', 'The focused editor must be empty before replacement');
+  await field.fill(value);
+  await page.waitForTimeout(100);
+  assert.equal(await field.inputValue(), value);
 }
 async function menu(title, item) { await click(title); await click(item, 'menuitem'); }
 async function reviewMode(index) {
