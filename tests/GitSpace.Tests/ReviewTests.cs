@@ -134,6 +134,16 @@ internal static class ReviewTests
                 Equal(1, (await Run(new("commitFiles") { Value = state.Head })).Changes.Length);
             });
         }
-        finally { try { Directory.Delete(root, true); } catch (IOException) { } }
+        finally
+        {
+            // Git marks loose objects read-only on Windows. Remove that attribute
+            // only inside this test-owned temporary directory before deleting it.
+            if (Directory.Exists(root))
+            {
+                foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                    File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
+                Directory.Delete(root, true);
+            }
+        }
     }
 }
