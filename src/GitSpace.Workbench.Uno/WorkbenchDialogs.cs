@@ -157,8 +157,13 @@ public sealed partial class WorkbenchView
     private async Task AmendAsync()
     {
         if (Snapshot.Commits.Length == 0) return;
-        var message = await PromptAsync("Amend latest commit", "Commit message", Snapshot.Commits[0].Message, "This rewrites the latest commit ID and includes selected working changes. Avoid amending commits already shared with others.", "Amend commit");
-        if (message is not null) await ExecuteAsync(new("amend") { Paths = _changes.SelectedPaths, Message = message, Confirm = true });
+        var message = GitTheme.Input("Commit message", true); message.Text = Snapshot.Commits[0].Message;
+        message.MinWidth = 390; message.Height = 160; AutomationProperties.SetName(message, "Amended commit message");
+        var panel = new StackPanel { Spacing = 10 }; panel.Children.Add(message);
+        var warning = GitTheme.Label("This rewrites the latest commit ID and includes selected working changes. Avoid amending commits already shared with others.", 12, true);
+        warning.TextWrapping = TextWrapping.Wrap; warning.MaxWidth = 480; panel.Children.Add(warning);
+        if (await ShowAsync(Dialog("Amend latest commit", panel, "Amend commit")))
+            await ExecuteAsync(new("amend") { Paths = _changes.SelectedPaths, Message = GitText.ToLf(message.Text), Confirm = true });
     }
     private async Task HistoryActionAsync(string operation)
     {

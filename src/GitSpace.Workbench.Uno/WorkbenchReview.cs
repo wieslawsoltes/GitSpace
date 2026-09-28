@@ -58,7 +58,7 @@ public sealed partial class WorkbenchView
     }
     private async Task StageSelectionAsync(bool hunk)
     {
-        if (_busy || _selection is null || _lastDiff is null || _showHistory || _reviewMode == "all") return;
+        if (_busy || _loadingDiff || _selection is null || _lastDiff is null || _showHistory || _reviewMode == "all") return;
         var rows = hunk ? _selection.HunkAt(_diff.Viewport.SelectedRow) : _diff.SelectedChangedRows;
         var staged = _reviewMode == "staged"; var text = _selection.Apply(rows, staged);
         await ExecuteAsync(new(staged ? "unstageText" : "stageText")

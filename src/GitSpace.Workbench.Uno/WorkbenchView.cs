@@ -211,7 +211,7 @@ public sealed partial class WorkbenchView : Grid, IAsyncDisposable
         _branch.SetValue(snapshot.Branch);
         _sync.SetValue(snapshot.Remotes.Length == 0 ? "Publish repository" : "Fetch origin", snapshot.Remotes.Length == 0 ? "No remote configured" : _platform.IsBrowser ? "Remote synchronization" : $"{snapshot.Ahead} ahead · {snapshot.Behind} behind");
         _changes.SetFiles(snapshot.Changes, _activePath, changedRepository); _history.SetCommits(snapshot.Commits, snapshot.HasMoreHistory);
-        _status.Text = snapshot.Root.Length == 0 ? "Open a repository to begin" : snapshot.Operation.Length != 0 ? snapshot.Operation + " in progress · resolve and stage conflicts, then continue or abort" : snapshot.Changes.Length + " changed files  ·  " + snapshot.Branch + "  ·  " + snapshot.Commits.Length + (snapshot.Commits.Length == 200 ? "+" : "") + " commits loaded";
+        _status.Text = snapshot.Root.Length == 0 ? "Open a repository to begin" : snapshot.Operation.Length != 0 ? snapshot.Operation + " in progress · resolve and stage conflicts, then continue or abort" : snapshot.Changes.Length + " changed files  ·  " + snapshot.Branch + "  ·  " + snapshot.Commits.Length + (snapshot.HasMoreHistory ? "+" : "") + " commits loaded";
         _empty.Visibility = !_showHistory && snapshot.Changes.Length == 0 && snapshot.Root.Length != 0 ? Visibility.Visible : Visibility.Collapsed;
         UpdateComposer(); StateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -252,6 +252,16 @@ public sealed partial class WorkbenchView : Grid, IAsyncDisposable
             var result = await _backend.ExecuteAsync(new(_showHistory || _reviewMode == "all" ? "diff" : "review") { Root = Snapshot.Root, Path = path, Value = _showHistory ? commit : _reviewMode == "all" ? "" : _reviewMode }, _lifetime.Token);
             if (generation != _fileGeneration || _disposed) return;
             _loadingDiff = false; _lastDiff = result; ApplyDiff(result); StateChanged?.Invoke(this, EventArgs.Empty);
+        }
+        catch
+        {
+            if (generation == _fileGeneration && !_disposed)
+            {
+                // An unsuccessful preview must not leave actions tied to an older file's diff.
+                _selection = null; _lastDiff = null; _renderedKey = null;
+                _diff.SetDocument(null); _stats.Text = "Unable to load diff";
+            }
+            throw;
         }
         finally { if (generation == _fileGeneration) { _loadingDiff = false; UpdateReviewCommands(); } }
     }

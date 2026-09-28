@@ -36,11 +36,11 @@ async function input(name, value) {
 }
 async function reviewMode(index) {
   const control = page.getByRole('combobox', { name: 'Diff review mode', exact: true });
-  const box = await control.boundingBox(); assert.ok(box);
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await page.keyboard.press('Home');
-  for (let n = 0; n < index; n++) await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Enter');
+  // The semantic overlay keeps stale coordinates when a collapsed ancestor moves.
+  // Exercise the shipped expand/selection automation providers, not application APIs.
+  await control.dispatchEvent('click');
+  await page.getByRole('option', { name: ['All changes', 'Unstaged changes', 'Staged changes'][index], exact: true }).dispatchEvent('click');
+  if (await control.getAttribute('aria-expanded') === 'true') await control.dispatchEvent('click');
   await page.waitForFunction(mode => gitspaceDiagnostics.reviewMode === mode, ['all', 'unstaged', 'staged'][index]);
 }
 async function menu(title, item) { await click(title); await click(item, 'menuitem'); }
@@ -54,12 +54,20 @@ try {
     assert.equal(state.repository, 'Tutorial'); assert.equal(state.changes, 4); assert.equal(state.commits, 4); assert.match(state.head, /^[a-f0-9]{40}$/);
     await page.waitForFunction(() => gitspaceDiagnostics.frames > 0);
   });
+  await check('file inclusion supports mixed state and one-click select all', async () => {
+    const row = page.getByRole('checkbox', { name: 'Include README.md in commit', exact: true });
+    await row.dispatchEvent('click');
+    await page.waitForFunction(() => document.querySelector('[aria-label="Select all changed files"]').getAttribute('aria-checked') === 'mixed');
+    await click('Select all changed files', 'checkbox');
+    await page.waitForFunction(() => document.querySelector('[aria-label="Select all changed files"]').getAttribute('aria-checked') === 'true');
+    assert.equal(await row.isChecked(), true);
+  });
   await page.screenshot({ path: output + '/01-changes-dark.png', fullPage: true });
   await check('History tab shows real commit changes', async () => { await click('History'); await page.waitForFunction(() => gitspaceDiagnostics.history); });
   await page.screenshot({ path: output + '/02-history.png', fullPage: true });
   await check('Changes tab and split diff are interactive', async () => {
     await click('Changes'); await page.waitForFunction(() => !gitspaceDiagnostics.history);
-    await click('Toggle split diff'); await page.waitForFunction(() => gitspaceDiagnostics.split);
+    await activateDialog('Toggle split diff'); await page.waitForFunction(() => gitspaceDiagnostics.split);
   });
   await page.screenshot({ path: output + '/03-split-diff.png', fullPage: true });
   await check('commit composer makes a real selected-file commit', async () => {
@@ -89,7 +97,7 @@ try {
     await page.waitForFunction(() => gitspaceDiagnostics.selectedRows === 1);
     await menu('View', 'Refresh'); await ready();
     assert.equal(await page.evaluate(() => gitspaceDiagnostics.selectedRows), 1);
-    await click('Stage selection');
+    await activateDialog('Stage selection');
     await page.waitForFunction(() => gitspaceDiagnostics.stagedFiles === 1 && !gitspaceDiagnostics.busy);
     const previous = await page.evaluate(() => gitspaceDiagnostics.head);
     await input('Commit summary', 'Commit only the first line');

@@ -45,7 +45,7 @@ public sealed class ChangedFilesView : Grid
         RowDefinitions.Add(new() { Height = new GridLength(35) }); RowDefinitions.Add(new() { Height = new GridLength(38) }); RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         var header = new Grid { Padding = new Thickness(10, 0, 10, 0), Background = GitTheme.Brush(GitTheme.Current.Panel) };
         header.ColumnDefinitions.Add(new() { Width = new GridLength(28) }); header.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        _all = new CheckBox { MinWidth = 24, MinHeight = 24, IsThreeState = true, VerticalAlignment = VerticalAlignment.Center };
+        _all = new CheckBox { MinWidth = 24, MinHeight = 24, IsThreeState = false, VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetName(_all, "Select all changed files"); header.Children.Add(_all);
         _count = GitTheme.Label("0 changed files", 12, bold: true); Grid.SetColumn(_count, 1); header.Children.Add(_count); Children.Add(header);
         _filter.Margin = new Thickness(10, 2, 10, 5); Grid.SetRow(_filter, 1); Children.Add(_filter); AutomationProperties.SetName(_filter, "Filter changed files");
@@ -53,8 +53,8 @@ public sealed class ChangedFilesView : Grid
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
               <Grid MinHeight="30" ColumnSpacing="6" Padding="2,0,4,0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/><ColumnDefinition Width="18"/></Grid.ColumnDefinitions>
-                <CheckBox IsChecked="{Binding Included, Mode=TwoWay}" MinWidth="24" MinHeight="24" AutomationProperties.Name="{Binding CheckName}"/>
-                <TextBlock Grid.Column="1" Text="{Binding Path}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                <CheckBox IsChecked="{Binding Included, Mode=TwoWay}" Padding="0" VerticalAlignment="Center" MinWidth="24" MinHeight="24" AutomationProperties.Name="{Binding CheckName}"/>
+                <TextBlock Grid.Column="1" Text="{Binding Path}" FontSize="12" FontWeight="Normal" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Column="2" Text="{Binding Status}" Foreground="{Binding StatusBrush}" FontSize="15" VerticalAlignment="Center"/>
               </Grid>
             </DataTemplate>
@@ -70,6 +70,7 @@ public sealed class ChangedFilesView : Grid
         var style = new Style(typeof(ListViewItem));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(6, 0, 6, 0)));
         style.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, height));
+        style.Setters.Add(new Setter(FrameworkElement.HeightProperty, height));
         style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
         return style;
     }
