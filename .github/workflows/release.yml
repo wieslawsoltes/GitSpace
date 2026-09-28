@@ -1,0 +1,89 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Portable and Git tests
+        run: dotnet run --project tests/GitSpace.Tests -c Release
+      - name: Publish self-contained desktop application
+        run: dotnet publish src/GitSpace.App -f net10.0-desktop -c Release -r ${{ matrix.rid }} --self-contained true -p:GitSpaceTargetFrameworks=net10.0-desktop -o artifacts/desktop
+      - name: Archive desktop distribution
+        shell: bash
+        run: |
+          python - <<'PY'
+          import shutil
+          shutil.copy2('LICENSE', 'artifacts/desktop/LICENSE')
+          shutil.copy2('THIRD-PARTY-NOTICES.md', 'artifacts/desktop/THIRD-PARTY-NOTICES.md')
+          shutil.make_archive('artifacts/GitSpace-${{ matrix.rid }}', 'zip', 'artifacts/desktop')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.rid }}
+          path: artifacts/GitSpace-${{ matrix.rid }}.zip
+  packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: dotnet workload install wasm-tools --skip-manifest-update
+      - run: dotnet run --project tests/GitSpace.Tests -c Release
+      - name: Browser backend and packages
+        run: |
+          npm install --prefix src/GitSpace.BrowserGit --no-audit --no-fund
+          npm test --prefix src/GitSpace.BrowserGit
+          npm run build --prefix src/GitSpace.BrowserGit
+          mkdir -p artifacts/packages
+          for project in Core Diff Git Hosting.GitHub Rendering.Skia Controls.Uno Workbench.Uno; do
+            dotnet pack "src/GitSpace.$project/GitSpace.$project.csproj" -c Release -o artifacts/packages
+          done
+          npm pack ./src/GitSpace.BrowserGit --pack-destination artifacts/packages
+          python3 tools/verify-packages.py artifacts/packages
+          git archive --format=zip -o artifacts/packages/GitSpace-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-packages
+          path: artifacts/packages
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, packages]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: artifacts/release
+      - name: Publish GitHub release with build artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "${GITHUB_REF_NAME}" artifacts/release/* --title "GitSpace ${GITHUB_REF_NAME}" --generate-notes --prerelease

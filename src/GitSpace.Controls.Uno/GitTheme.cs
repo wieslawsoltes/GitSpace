@@ -15,7 +15,7 @@ public sealed record GitTheme(bool IsDark, string Surface, string Panel, string 
     public static TextBlock Label(string text, double size = 12, bool muted = false, bool bold = false) => new()
     {
         Text = text, FontSize = size, Foreground = Brush(muted ? Current.Muted : Current.Text),
-        FontWeight = bold ? Windows.UI.Text.FontWeights.SemiBold : Windows.UI.Text.FontWeights.Normal,
+        FontWeight = bold ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
         VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis
     };
     public static TextBox Input(string placeholder, bool multiline = false) => new()
@@ -25,7 +25,8 @@ public sealed record GitTheme(bool IsDark, string Surface, string Panel, string 
         CornerRadius = new CornerRadius(3), AcceptsReturn = multiline, TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
         IsSpellCheckEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch
     };
-    internal static ControlTemplate ButtonTemplate() => (ControlTemplate)XamlReader.Load("""
+    private static ControlTemplate? _buttonTemplate;
+    internal static ControlTemplate ButtonTemplate() => _buttonTemplate ??= (ControlTemplate)XamlReader.Load("""
         <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">
           <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3">
             <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}" Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />

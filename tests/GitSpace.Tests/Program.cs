@@ -18,7 +18,7 @@ await Test("path traversal and metadata are rejected", () => Sync(() =>
 }));
 await Test("literal Unicode and leading-dash filenames are valid", () => Sync(() =>
 {
-    foreach (var path in new[] { "src/a b.cs", "zażółć.txt", "--help.txt", "[literal]*.txt" }) Equal(path, GitSafety.RelativePath(path));
+    foreach (var path in new[] { "src/a b.cs", "zażółć.txt", "--help.txt", "[literal].txt" }) Equal(path, GitSafety.RelativePath(path));
 }));
 await Test("ref injection is rejected", () => Sync(() =>
 {
@@ -41,7 +41,7 @@ await Test("porcelain deletion and staged modification", () => Sync(() =>
 }));
 await Test("commit log preserves body and parents", () => Sync(() =>
 {
-    var log = StatusParser.Log("abc\0Author\0a@b\02026-09-28\0def ghi\0Summary\n\nBody\n\0");
+    var log = StatusParser.Log(string.Join('\0', new[] { "abc", "Author", "a@b", "2026-09-28", "def ghi", "Summary\n\nBody\n", "" }));
     Equal(1, log.Length); Equal("Summary", log[0].Summary); Equal(2, log[0].Parents.Length);
 }));
 await Test("JSON contract round trip", () => Sync(() =>
@@ -100,7 +100,12 @@ async Task<GitResult> Do(string operation, string path = "", string value = "", 
     if (result.Snapshot is not null) snapshot = result.Snapshot;
     return result;
 }
-await Test("native init", async () => { snapshot = (await backend.ExecuteAsync(new("init") { Root = root })).Snapshot!; Equal("main", snapshot.Branch); });
+await Test("native init", async () =>
+{
+    snapshot = (await backend.ExecuteAsync(new("init") { Root = root })).Snapshot!; Equal("main", snapshot.Branch);
+    // Ensure these byte-level tests are independent of the runner's global newline preferences.
+    await process.RunAsync(root, ["config", "core.autocrlf", "false"]);
+});
 await Test("native write and status", async () => { await Do("write", "a.txt", message: "one\n"); Equal(1, snapshot.Changes.Length); Equal("A", snapshot.Changes[0].Status); });
 await Test("native first selected-file commit", async () => { await Do("commit", message: "Initial", paths: ["a.txt"]); Equal(1, snapshot.Commits.Length); Equal("Initial", snapshot.Commits[0].Summary); Equal(0, snapshot.Changes.Length); });
 await Test("native modified diff", async () => { await Do("write", "a.txt", message: "two\n"); var d = await Do("diff", "a.txt"); Equal("one\n", d.Before); Equal("two\n", d.After); });
@@ -114,9 +119,10 @@ await Test("native selected commit preserves unrelated staged changes", async ()
 });
 await Test("native literal pathspec prevents glob staging", async () =>
 {
-    await Do("write", "[x]*.txt", message: "literal"); await Do("write", "xmatch.txt", message: "not selected");
-    await Do("commit", message: "Literal only", paths: ["[x]*.txt"]);
-    var files = await Do("commitFiles", value: snapshot.Head); Equal(1, files.Changes.Length); Equal("[x]*.txt", files.Changes[0].Path);
+    // [] is valid on Windows too; an unescaped Git glob would accidentally select x.txt.
+    await Do("write", "[x].txt", message: "literal"); await Do("write", "x.txt", message: "not selected");
+    await Do("commit", message: "Literal only", paths: ["[x].txt"]);
+    var files = await Do("commitFiles", value: snapshot.Head); Equal(1, files.Changes.Length); Equal("[x].txt", files.Changes[0].Path);
 });
 await Test("native revision check rejects stale writes", async () =>
 {
@@ -143,9 +149,9 @@ await Test("native stash apply preserves stash", async () =>
     await Do("stashDrop", value: "stash@{0}", confirm: true); Equal(0, snapshot.Stashes.Length);
 });
 await Test("native discard tracked file", async () => { await Do("write", "a.txt", message: "discard me"); await Do("discard", paths: ["a.txt"], confirm: true); Equal("two\n", (await Do("read", "a.txt")).Text); });
-await Test("native symlink editor escape blocked", async () =>
+await Test("native symlink editor escape blocked (Unix)", async () =>
 {
-    if (OperatingSystem.IsWindows()) return;
+    if (OperatingSystem.IsWindows()) { Console.WriteLine("INFO symlink creation is platform-gated on Windows"); return; }
     var outside = Path.Combine(Path.GetTempPath(), "gitspace-outside-" + Guid.NewGuid().ToString("N")); await File.WriteAllTextAsync(outside, "safe");
     try
     {

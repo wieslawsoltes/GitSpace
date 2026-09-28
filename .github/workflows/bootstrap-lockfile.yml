@@ -1,0 +1,23 @@
+name: Bootstrap dependency lockfile
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/bootstrap-lockfile.yml']
+permissions:
+  contents: write
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Record resolved npm dependency graph
+        run: |
+          npm install --package-lock-only --ignore-scripts --prefix src/GitSpace.BrowserGit --no-audit --no-fund
+          git add src/GitSpace.BrowserGit/package-lock.json
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'build: record browser Git dependency lockfile'
+            git push origin HEAD:main
+          fi
