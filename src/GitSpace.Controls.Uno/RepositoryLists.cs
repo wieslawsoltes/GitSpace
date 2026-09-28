@@ -16,6 +16,7 @@ public sealed class ChangeRow : INotifyPropertyChanged
     public GitChange File { get; private set; }
     public string Path => File.Path;
     public string CheckName => "Include " + Path + " in commit";
+    public override string ToString() => Path;
     public string Status => File.Conflict ? "!" : File.Status == "A" ? "+" : File.Status == "D" ? "−" : "•";
     public Brush StatusBrush => GitTheme.Brush(File.Conflict || File.Status == "D" ? "#f85149" : File.Status == "A" ? "#3fb950" : "#d29922");
     public bool Included { get => _included; set { if (_included == value) return; _included = value; Notify(nameof(Included)); _changed(this); } }
@@ -61,7 +62,7 @@ public sealed class ChangedFilesView : Grid
             """);
         _list.ItemContainerStyle = RowStyle(30);
         Grid.SetRow(_list, 2); Children.Add(_list); AutomationProperties.SetName(_list, "Changed files");
-        _filter.TextChanged += (_, _) => ReconcileVisible();
+        _filter.TextChanged += (_, _) => ReconcileVisible(true);
         _all.Checked += (_, _) => ToggleAll(true); _all.Unchecked += (_, _) => ToggleAll(false);
         _list.SelectionChanged += (_, _) => { if (!_updating && _list.SelectedItem is ChangeRow row) { _active = row.Path; FileSelected?.Invoke(this, row.Path); } };
     }
@@ -103,21 +104,32 @@ public sealed class ChangedFilesView : Grid
             if (_rows.TryGetValue(file.Path, out var row)) row.Update(file);
             else _rows[file.Path] = new(file, true, RowChanged);
         }
-        _files = files; _active = active; _updating = false; ReconcileVisible(); UpdateHeader();
+        _files = files; _active = active; _updating = false; ReconcileVisible(newRepository || _visible.Length == 0); UpdateHeader();
     }
-    private void ReconcileVisible()
+    private void ReconcileVisible(bool resetScroll = false)
     {
         var visible = _files.Where(f => f.Path.Contains(_filter.Text, StringComparison.OrdinalIgnoreCase)).Select(f => _rows[f.Path]).ToArray();
         _updating = true;
         // No ItemsSource reset for a status-only refresh: preserve containers, scroll and focus.
         if (!_visible.SequenceEqual(visible)) { _visible = visible; _list.ItemsSource = visible; }
         _list.SelectedItem = _rows.GetValueOrDefault(_active); _updating = false;
+        if (resetScroll && visible.Length != 0)
+        {
+            // Selection can scroll before the first measure. Restore the leading item
+            // after realization; ordinary status-only refreshes never enter this path.
+            var expected = _visible;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                if (ReferenceEquals(expected, _visible)) _list.ScrollIntoView(expected[0], ScrollIntoViewAlignment.Leading);
+            });
+        }
     }
 }
 
 public sealed class HistoryRow(GitCommit commit)
 {
     public GitCommit Commit { get; } = commit;
+    public override string ToString() => Summary;
     public string Summary => Commit.Summary;
     public string Metadata { get; } = commit.Author + " · " + (DateTimeOffset.TryParse(commit.Date, out var date) ? date.ToLocalTime().ToString("MMM d, HH:mm") : commit.Date);
     public string Search { get; } = commit.Message + " " + commit.Author + " " + commit.Id;

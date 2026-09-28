@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
-import { createRequire } from 'node:module';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { inflateSync } from 'node:zlib';
 import assert from 'node:assert/strict';
 
 const { unzipSync } = createRequire(new URL('../../src/GitSpace.BrowserGit/package.json', import.meta.url))('fflate');
@@ -8,6 +9,7 @@ const output = 'artifacts/browser-tests'; await mkdir(output, { recursive: true 
 const browser = await chromium.launch({ headless: true, args: ['--enable-unsafe-swiftshader', '--disable-dev-shm-usage'] });
 const page = await browser.newPage({ viewport: { width: 1360, height: 860 }, acceptDownloads: true });
 const messages = [], errors = []; let passed = 0;
+const fileText = 'Created in the browser\nUnicode: zażółć\n';
 page.on('console', message => { messages.push(message.type() + ': ' + message.text()); if (message.text().includes('[GitSpace]')) console.log(message.text()); });
 page.on('pageerror', error => errors.push(error.stack || String(error)));
 async function check(name, action) { console.log('START ' + name); await action(); passed++; console.log('PASS ' + name); }
@@ -18,22 +20,17 @@ async function click(name, role = 'button') {
   await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
 }
 async function activateDialog(name) {
-  // Uno's semantic button click is connected to the actual managed button's
-  // IInvokeProvider. Use that accessibility action for popup controls whose
-  // flattened semantic bounds are local. This does not invoke app commands,
-  // change diagnostic state, or call the Git worker directly.
+  // This invokes Uno's actual managed IInvokeProvider through the shipped
+  // accessibility bridge. No application command or worker API is invoked here.
   const button = page.getByRole('button', { name, exact: true });
-  await button.waitFor({ state: 'attached' });
-  assert.equal(await button.isDisabled(), false, 'Dialog action is enabled');
+  await button.waitFor({ state: 'attached' }); assert.equal(await button.isDisabled(), false);
   await button.dispatchEvent('click');
 }
 async function input(name, value) {
   const field = page.getByRole('textbox', { name, exact: true });
-  await field.fill(value);
-  assert.equal(await field.inputValue(), value);
-  // Allow managed TextBox updates and the popup's initial-focus dispatch to settle.
-  await page.waitForTimeout(100);
+  await field.fill(value); assert.equal(await field.inputValue(), value); await page.waitForTimeout(100);
 }
+async function menu(title, item) { await click(title); await click(item, 'menuitem'); }
 async function reviewMode(index) {
   const control = page.getByRole('combobox', { name: 'Diff review mode', exact: true });
   // The semantic overlay keeps stale coordinates when a collapsed ancestor moves.
@@ -41,10 +38,28 @@ async function reviewMode(index) {
   await control.dispatchEvent('click');
   await page.getByRole('option', { name: ['All changes', 'Unstaged changes', 'Staged changes'][index], exact: true }).dispatchEvent('click');
   if (await control.getAttribute('aria-expanded') === 'true') await control.dispatchEvent('click');
-  await page.waitForFunction(mode => gitspaceDiagnostics.reviewMode === mode, ['all', 'unstaged', 'staged'][index]);
+  await page.waitForFunction(value => gitspaceDiagnostics.reviewMode === value, ['all', 'unstaged', 'staged'][index]);
 }
-async function menu(title, item) { await click(title); await click(item, 'menuitem'); }
 async function ready() { await page.waitForFunction(() => globalThis.gitspaceDiagnostics?.ready && !gitspaceDiagnostics.busy, null, { timeout: 90000 }); }
+function readObject(files, id, type) {
+  assert.match(id, /^[a-f0-9]{40}$/);
+  const bytes = inflateSync(files['.git/objects/' + id.slice(0, 2) + '/' + id.slice(2)], { maxOutputLength: 2 * 1024 * 1024 });
+  const end = bytes.indexOf(0); assert.ok(end > 0);
+  assert.equal(bytes.subarray(0, end).toString(), type + ' ' + (bytes.length - end - 1));
+  return bytes.subarray(end + 1);
+}
+function committedRootFile(files, commit, filename) {
+  const treeId = /^tree ([a-f0-9]{40})$/m.exec(readObject(files, commit, 'commit').toString())?.[1];
+  const tree = readObject(files, treeId, 'tree');
+  for (let offset = 0; offset < tree.length;) {
+    const end = tree.indexOf(0, offset); assert.ok(end > offset && end + 21 <= tree.length);
+    const header = tree.subarray(offset, end).toString();
+    const id = tree.subarray(end + 1, end + 21).toString('hex');
+    if (header.slice(header.indexOf(' ') + 1) === filename) return readObject(files, id, 'blob').toString('utf8');
+    offset = end + 21;
+  }
+  throw new Error('Committed file is missing: ' + filename);
+}
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:4173/GitSpace/', { waitUntil: 'domcontentloaded' });
   await ready(); await accessibility();
@@ -55,12 +70,16 @@ try {
     await page.waitForFunction(() => gitspaceDiagnostics.frames > 0);
   });
   await check('file inclusion supports mixed state and one-click select all', async () => {
-    const row = page.getByRole('checkbox', { name: 'Include README.md in commit', exact: true });
-    await row.dispatchEvent('click');
+    // The recycled ListView peer represents each entire row as an option. Toggle
+    // its visible checkbox with a real pointer rather than requiring a child peer.
+    const row = page.getByRole('listbox', { name: 'Changed files', exact: true }).getByRole('option', { name: 'README.md', exact: true });
+    await row.waitFor({ state: 'attached' });
+    const box = await row.boundingBox(); assert.ok(box);
+    await page.mouse.click(box.x + 18, box.y + box.height / 2);
     await page.waitForFunction(() => document.querySelector('[aria-label="Select all changed files"]').getAttribute('aria-checked') === 'mixed');
     await click('Select all changed files', 'checkbox');
     await page.waitForFunction(() => document.querySelector('[aria-label="Select all changed files"]').getAttribute('aria-checked') === 'true');
-    assert.equal(await row.isChecked(), true);
+    assert.equal(await page.getByRole('checkbox', { name: 'Select all changed files', exact: true }).isChecked(), true);
   });
   await page.screenshot({ path: output + '/01-changes-dark.png', fullPage: true });
   await check('History tab shows real commit changes', async () => { await click('History'); await page.waitForFunction(() => gitspaceDiagnostics.history); });
@@ -83,46 +102,47 @@ try {
     await activateDialog('Create branch');
     await page.waitForFunction(() => gitspaceDiagnostics.branch === 'feature/browser-test' && !gitspaceDiagnostics.busy);
   });
-  await check('new file and text editor write a real working file', async () => {
+  await check('text editor preserves Unicode and displays both saved lines', async () => {
     await menu('File', 'New file…'); await input('Repository-relative path', 'browser-test.txt'); await activateDialog('Create file');
-    await input('File editor', 'Created in the browser\nUnicode: zażółć\n');
-    await activateDialog('Save file');
+    await input('File editor', fileText); await activateDialog('Save file');
     await page.waitForFunction(() => gitspaceDiagnostics.changes === 1 && gitspaceDiagnostics.activePath === 'browser-test.txt' && gitspaceDiagnostics.rowCount === 2 && !gitspaceDiagnostics.busy);
   });
-  await check('partial line selection survives refresh and commits only the chosen line', async () => {
+  await check('partial review stages one selected line and preserves selection through refresh', async () => {
     await reviewMode(1);
     await page.waitForFunction(() => gitspaceDiagnostics.rowCount === 2 && !gitspaceDiagnostics.split);
-    const diff = await page.getByRole('group', { name: 'Diff viewer', exact: true }).boundingBox();
-    assert.ok(diff); await page.mouse.click(diff.x + 180, diff.y + 9);
+    const bounds = await page.getByRole('group', { name: 'Diff viewer', exact: true }).boundingBox(); assert.ok(bounds);
+    await page.mouse.click(bounds.x + 130, bounds.y + 9);
     await page.waitForFunction(() => gitspaceDiagnostics.selectedRows === 1);
     await menu('View', 'Refresh'); await ready();
     assert.equal(await page.evaluate(() => gitspaceDiagnostics.selectedRows), 1);
     await activateDialog('Stage selection');
     await page.waitForFunction(() => gitspaceDiagnostics.stagedFiles === 1 && !gitspaceDiagnostics.busy);
+    await input('Commit summary', 'Commit only the selected first line');
     const previous = await page.evaluate(() => gitspaceDiagnostics.head);
-    await input('Commit summary', 'Commit only the first line');
     await click('Commit staged to feature/browser-test');
-    await page.waitForFunction(id => gitspaceDiagnostics.head !== id && !gitspaceDiagnostics.busy, previous);
+    await page.waitForFunction(id => gitspaceDiagnostics.head !== id && gitspaceDiagnostics.commits === 6 && !gitspaceDiagnostics.busy, previous);
     assert.equal(await page.evaluate(() => gitspaceDiagnostics.changes), 1);
-    assert.equal(await page.evaluate(() => gitspaceDiagnostics.commits), 6);
-    await reviewMode(0);
   });
-  await check('export ZIP preserves exact multiline working bytes and real Git metadata', async () => {
+  await check('real ZIP export preserves exact worktree and selected committed bytes', async () => {
     await menu('File', 'Export repository ZIP…');
     const pending = page.waitForEvent('download'); await activateDialog('Confirm');
-    const download = await pending; const zip = output + '/tutorial-export.zip'; await download.saveAs(zip);
-    const files = unzipSync(await readFile(zip));
-    assert.equal(new TextDecoder().decode(files['browser-test.txt']), 'Created in the browser\nUnicode: zażółć\n');
-    assert.equal(new TextDecoder().decode(files['.git/HEAD']).trim(), 'ref: refs/heads/feature/browser-test');
+    const download = await pending; const zipPath = output + '/tutorial-export.zip'; await download.saveAs(zipPath);
+    const files = unzipSync(await readFile(zipPath)); const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+    assert.equal(decoder.decode(files['browser-test.txt']), fileText);
+    assert.equal(decoder.decode(files['.git/HEAD']).trim(), 'ref: refs/heads/feature/browser-test');
+    const head = decoder.decode(files['.git/refs/heads/feature/browser-test']).trim();
+    assert.equal(head, await page.evaluate(() => gitspaceDiagnostics.head));
+    assert.equal(committedRootFile(files, head, 'browser-test.txt'), 'Created in the browser\n');
   });
   await check('theme switch preserves the worktree', async () => {
-    await menu('View', 'Toggle light / dark appearance'); await ready(); assert.equal(await page.evaluate(() => gitspaceDiagnostics.changes), 1);
+    await menu('View', 'Toggle light / dark appearance'); await ready();
+    assert.equal(await page.evaluate(() => gitspaceDiagnostics.changes), 1); assert.equal(await page.evaluate(() => gitspaceDiagnostics.rowCount), 2);
   });
   await page.screenshot({ path: output + '/04-light-theme.png', fullPage: true });
-  await check('reload preserves branch, history and uncommitted work', async () => {
+  await check('reload preserves branch, history and multiline uncommitted work', async () => {
     const head = await page.evaluate(() => gitspaceDiagnostics.head); await page.waitForTimeout(1000);
     await page.reload({ waitUntil: 'domcontentloaded' }); await ready(); await accessibility();
-    const state = await page.evaluate(() => gitspaceDiagnostics); assert.equal(state.head, head); assert.equal(state.branch, 'feature/browser-test'); assert.equal(state.changes, 1);
+    const state = await page.evaluate(() => gitspaceDiagnostics); assert.equal(state.head, head); assert.equal(state.branch, 'feature/browser-test'); assert.equal(state.changes, 1); assert.equal(state.rowCount, 2);
   });
   await check('no unhandled browser exceptions', async () => { assert.deepEqual(errors, []); });
   console.log(`RESULT: ${passed} real Chromium workflows passed.`);
