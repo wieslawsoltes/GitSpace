@@ -71,12 +71,13 @@ try {
     const row = list.getByRole('option', { name: 'README.md', exact: true });
     await row.waitFor({ state: 'attached' });
     assert.equal(await list.getByRole('option').count(), 4, 'One realized row per tutorial file, no duplicates');
-    // Uno emits window-relative coordinates on nested semantic list peers. The
-    // DOM rectangle adds the parent's offset a second time; use the emitted
-    // window coordinates to send a real pointer into the rendered checkbox.
-    const box = await row.evaluate(e => ({ x: parseFloat(e.style.left), y: parseFloat(e.style.top), height: parseFloat(e.style.height) }));
-    assert.ok(Number.isFinite(box.x) && Number.isFinite(box.y) && box.height > 0);
-    await page.mouse.click(box.x + 18, box.y + box.height / 2);
+    // The row is nested in the listbox: boundingBox applies the parent offset
+    // exactly once. Verify the checkbox target remains inside that list viewport.
+    const box = await row.boundingBox(); const viewport = await list.boundingBox();
+    assert.ok(box && viewport && box.width > 0 && box.height > 0);
+    const x = box.x + 18, y = box.y + box.height / 2;
+    assert.ok(x >= viewport.x && x < viewport.x + viewport.width && y >= viewport.y && y < viewport.y + viewport.height);
+    await page.mouse.click(x, y);
     await page.waitForFunction(() => document.querySelector('[aria-label="Select all changed files"]').getAttribute('aria-checked') === 'mixed');
     await click('Select all changed files', 'checkbox');
     await page.waitForFunction(() => document.querySelector('[aria-label="Select all changed files"]').getAttribute('aria-checked') === 'true');

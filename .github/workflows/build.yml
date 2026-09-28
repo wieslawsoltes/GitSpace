@@ -28,6 +28,8 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Portable and real system Git regression tests
         run: dotnet run --project tests/GitSpace.Tests -c Release
+      - name: Raster rendering correctness and bounded-cache checks
+        run: dotnet run --project tests/GitSpace.Rendering.Tests -c Release
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -48,7 +50,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: refresh-benchmark
-          path: artifacts/refresh-benchmark.json
+          path: |
+            artifacts/refresh-benchmark.json
+            artifacts/rendering-benchmark.json
   desktop:
     strategy:
       fail-fast: false
