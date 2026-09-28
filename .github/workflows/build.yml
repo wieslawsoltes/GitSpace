@@ -29,6 +29,8 @@ jobs:
         run: npm ci --prefix src/GitSpace.BrowserGit --no-audit --no-fund
       - name: Real browser-backend Git contract tests
         run: npm test --prefix src/GitSpace.BrowserGit
+      - name: Reproducible refresh benchmark
+        run: node tests/browser/performance.mjs
       - name: Bundle isolated browser worker
         run: npm run build --prefix src/GitSpace.BrowserGit
       - uses: actions/upload-artifact@v4

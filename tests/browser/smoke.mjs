@@ -1,7 +1,9 @@
 import { chromium } from 'playwright';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
+const { unzipSync } = createRequire(new URL('../../src/GitSpace.BrowserGit/package.json', import.meta.url))('fflate');
 const output = 'artifacts/browser-tests'; await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ headless: true, args: ['--enable-unsafe-swiftshader', '--disable-dev-shm-usage'] });
 const page = await browser.newPage({ viewport: { width: 1360, height: 860 }, acceptDownloads: true });
@@ -31,6 +33,15 @@ async function input(name, value) {
   assert.equal(await field.inputValue(), value);
   // Allow managed TextBox updates and the popup's initial-focus dispatch to settle.
   await page.waitForTimeout(100);
+}
+async function reviewMode(index) {
+  const control = page.getByRole('combobox', { name: 'Diff review mode', exact: true });
+  const box = await control.boundingBox(); assert.ok(box);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('Home');
+  for (let n = 0; n < index; n++) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(mode => gitspaceDiagnostics.reviewMode === mode, ['all', 'unstaged', 'staged'][index]);
 }
 async function menu(title, item) { await click(title); await click(item, 'menuitem'); }
 async function ready() { await page.waitForFunction(() => globalThis.gitspaceDiagnostics?.ready && !gitspaceDiagnostics.busy, null, { timeout: 90000 }); }
@@ -68,7 +79,33 @@ try {
     await menu('File', 'New file…'); await input('Repository-relative path', 'browser-test.txt'); await activateDialog('Create file');
     await input('File editor', 'Created in the browser\nUnicode: zażółć\n');
     await activateDialog('Save file');
-    await page.waitForFunction(() => gitspaceDiagnostics.changes === 1 && gitspaceDiagnostics.activePath === 'browser-test.txt' && !gitspaceDiagnostics.busy);
+    await page.waitForFunction(() => gitspaceDiagnostics.changes === 1 && gitspaceDiagnostics.activePath === 'browser-test.txt' && gitspaceDiagnostics.rowCount === 2 && !gitspaceDiagnostics.busy);
+  });
+  await check('partial line selection survives refresh and commits only the chosen line', async () => {
+    await reviewMode(1);
+    await page.waitForFunction(() => gitspaceDiagnostics.rowCount === 2 && !gitspaceDiagnostics.split);
+    const diff = await page.getByRole('group', { name: 'Diff viewer', exact: true }).boundingBox();
+    assert.ok(diff); await page.mouse.click(diff.x + 180, diff.y + 9);
+    await page.waitForFunction(() => gitspaceDiagnostics.selectedRows === 1);
+    await menu('View', 'Refresh'); await ready();
+    assert.equal(await page.evaluate(() => gitspaceDiagnostics.selectedRows), 1);
+    await click('Stage selection');
+    await page.waitForFunction(() => gitspaceDiagnostics.stagedFiles === 1 && !gitspaceDiagnostics.busy);
+    const previous = await page.evaluate(() => gitspaceDiagnostics.head);
+    await input('Commit summary', 'Commit only the first line');
+    await click('Commit staged to feature/browser-test');
+    await page.waitForFunction(id => gitspaceDiagnostics.head !== id && !gitspaceDiagnostics.busy, previous);
+    assert.equal(await page.evaluate(() => gitspaceDiagnostics.changes), 1);
+    assert.equal(await page.evaluate(() => gitspaceDiagnostics.commits), 6);
+    await reviewMode(0);
+  });
+  await check('export ZIP preserves exact multiline working bytes and real Git metadata', async () => {
+    await menu('File', 'Export repository ZIP…');
+    const pending = page.waitForEvent('download'); await activateDialog('Confirm');
+    const download = await pending; const zip = output + '/tutorial-export.zip'; await download.saveAs(zip);
+    const files = unzipSync(await readFile(zip));
+    assert.equal(new TextDecoder().decode(files['browser-test.txt']), 'Created in the browser\nUnicode: zażółć\n');
+    assert.equal(new TextDecoder().decode(files['.git/HEAD']).trim(), 'ref: refs/heads/feature/browser-test');
   });
   await check('theme switch preserves the worktree', async () => {
     await menu('View', 'Toggle light / dark appearance'); await ready(); assert.equal(await page.evaluate(() => gitspaceDiagnostics.changes), 1);

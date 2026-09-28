@@ -1,101 +1,165 @@
+using System.ComponentModel;
 using GitSpace.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Markup;
+using Microsoft.UI.Xaml.Media;
 
 namespace GitSpace.Controls.Uno;
 
+/// <summary>Data-only row model; visual elements are created by ListView only when realized.</summary>
+public sealed class ChangeRow : INotifyPropertyChanged
+{
+    private bool _included;
+    private readonly Action<ChangeRow> _changed;
+    public GitChange File { get; private set; }
+    public string Path => File.Path;
+    public string CheckName => "Include " + Path + " in commit";
+    public string Status => File.Conflict ? "!" : File.Status == "A" ? "+" : File.Status == "D" ? "−" : "•";
+    public Brush StatusBrush => GitTheme.Brush(File.Conflict || File.Status == "D" ? "#f85149" : File.Status == "A" ? "#3fb950" : "#d29922");
+    public bool Included { get => _included; set { if (_included == value) return; _included = value; Notify(nameof(Included)); _changed(this); } }
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public ChangeRow(GitChange file, bool included, Action<ChangeRow> changed) { File = file; _included = included; _changed = changed; }
+    public void Update(GitChange file) { if (file == File) return; File = file; Notify(nameof(Status)); Notify(nameof(StatusBrush)); }
+    private void Notify(string property) => PropertyChanged?.Invoke(this, new(property));
+}
+
 public sealed class ChangedFilesView : Grid
 {
-    private readonly ListView _list = new() { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, Padding = new Thickness(0) };
+    private readonly ListView _list = new() { SelectionMode = ListViewSelectionMode.Single, Padding = new Thickness(0) };
     private readonly TextBlock _count;
     private readonly CheckBox _all;
     private readonly TextBox _filter = GitTheme.Input("Filter changed files");
+    private readonly Dictionary<string, ChangeRow> _rows = new(StringComparer.Ordinal);
+    private ChangeRow[] _visible = [];
     private GitChange[] _files = [];
-    private readonly HashSet<string> _selected = new(StringComparer.Ordinal);
     private string _active = "";
     private bool _updating;
     public event EventHandler<string>? FileSelected;
     public event EventHandler? SelectionChanged;
-    public string[] SelectedPaths => _files.Where(f => _selected.Contains(f.Path)).Select(f => f.Path).ToArray();
+    public string[] SelectedPaths => _files.Where(f => _rows[f.Path].Included).Select(f => f.Path).ToArray();
+    public string Filter { get => _filter.Text; set => _filter.Text = value; }
     public ChangedFilesView()
     {
         RowDefinitions.Add(new() { Height = new GridLength(35) }); RowDefinitions.Add(new() { Height = new GridLength(38) }); RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         var header = new Grid { Padding = new Thickness(10, 0, 10, 0), Background = GitTheme.Brush(GitTheme.Current.Panel) };
         header.ColumnDefinitions.Add(new() { Width = new GridLength(28) }); header.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        _all = new CheckBox { MinWidth = 24, MinHeight = 24, IsChecked = true, VerticalAlignment = VerticalAlignment.Center }; AutomationProperties.SetName(_all, "Select all changed files"); header.Children.Add(_all);
+        _all = new CheckBox { MinWidth = 24, MinHeight = 24, IsThreeState = true, VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetName(_all, "Select all changed files"); header.Children.Add(_all);
         _count = GitTheme.Label("0 changed files", 12, bold: true); Grid.SetColumn(_count, 1); header.Children.Add(_count); Children.Add(header);
         _filter.Margin = new Thickness(10, 2, 10, 5); Grid.SetRow(_filter, 1); Children.Add(_filter); AutomationProperties.SetName(_filter, "Filter changed files");
+        _list.ItemTemplate = (DataTemplate)XamlReader.Load("""
+            <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+              <Grid MinHeight="30" ColumnSpacing="6" Padding="2,0,4,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/><ColumnDefinition Width="18"/></Grid.ColumnDefinitions>
+                <CheckBox IsChecked="{Binding Included, Mode=TwoWay}" MinWidth="24" MinHeight="24" AutomationProperties.Name="{Binding CheckName}"/>
+                <TextBlock Grid.Column="1" Text="{Binding Path}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="2" Text="{Binding Status}" Foreground="{Binding StatusBrush}" FontSize="15" VerticalAlignment="Center"/>
+              </Grid>
+            </DataTemplate>
+            """);
+        _list.ItemContainerStyle = RowStyle(30);
         Grid.SetRow(_list, 2); Children.Add(_list); AutomationProperties.SetName(_list, "Changed files");
-        _filter.TextChanged += (_, _) => Rebuild();
+        _filter.TextChanged += (_, _) => ReconcileVisible();
         _all.Checked += (_, _) => ToggleAll(true); _all.Unchecked += (_, _) => ToggleAll(false);
-        _list.SelectionChanged += (_, _) => { if (_updating || _list.SelectedItem is not ListViewItem { Tag: GitChange file }) return; _active = file.Path; FileSelected?.Invoke(this, file.Path); };
+        _list.SelectionChanged += (_, _) => { if (!_updating && _list.SelectedItem is ChangeRow row) { _active = row.Path; FileSelected?.Invoke(this, row.Path); } };
+    }
+    internal static Style RowStyle(double height)
+    {
+        var style = new Style(typeof(ListViewItem));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(6, 0, 6, 0)));
+        style.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, height));
+        style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+        return style;
+    }
+    public void RestoreSelection(IEnumerable<string> selected)
+    {
+        var set = selected.ToHashSet(StringComparer.Ordinal); _updating = true;
+        foreach (var row in _rows.Values) row.Included = set.Contains(row.Path);
+        _updating = false; UpdateHeader(); SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
     private void ToggleAll(bool value)
     {
-        if (_updating) return;
-        foreach (var file in _files) { if (value) _selected.Add(file.Path); else _selected.Remove(file.Path); }
-        Rebuild(); SelectionChanged?.Invoke(this, EventArgs.Empty);
+        if (_updating) return; _updating = true;
+        foreach (var row in _rows.Values) row.Included = value;
+        _updating = false; UpdateHeader(); SelectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+    private void RowChanged(ChangeRow row) { if (_updating) return; UpdateHeader(); SelectionChanged?.Invoke(this, EventArgs.Empty); }
+    private void UpdateHeader()
+    {
+        var selected = _rows.Values.Count(r => r.Included); _updating = true;
+        _all.IsChecked = selected == 0 ? false : selected == _rows.Count ? true : null;
+        _count.Text = _files.Length + " changed " + (_files.Length == 1 ? "file" : "files"); _updating = false;
     }
     public void SetFiles(GitChange[] files, string active, bool newRepository = false)
     {
-        var existing = _files.Select(f => f.Path).ToHashSet(StringComparer.Ordinal); if (newRepository) { existing.Clear(); _selected.Clear(); }
-        foreach (var file in files) if (!existing.Contains(file.Path)) _selected.Add(file.Path);
-        _selected.IntersectWith(files.Select(f => f.Path)); _files = files; _active = active; Rebuild();
-    }
-    private void Rebuild()
-    {
-        _updating = true; _list.Items.Clear(); _count.Text = _files.Length + " changed " + (_files.Length == 1 ? "file" : "files");
-        _all.IsChecked = _files.Length > 0 && _files.All(f => _selected.Contains(f.Path));
-        // ListView virtualizes the item containers' arrangement and scrolling. Row contents are bounded by the snapshot limit.
-        foreach (var file in _files.Where(f => f.Path.Contains(_filter.Text, StringComparison.OrdinalIgnoreCase)))
+        _updating = true; if (newRepository) _rows.Clear();
+        var paths = files.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+        foreach (var path in _rows.Keys.Where(k => !paths.Contains(k)).ToArray()) _rows.Remove(path);
+        foreach (var file in files)
         {
-            var row = new Grid { MinHeight = 30, Padding = new Thickness(8, 0, 9, 0), HorizontalAlignment = HorizontalAlignment.Stretch };
-            row.ColumnDefinitions.Add(new() { Width = new GridLength(29) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(20) });
-            var check = new CheckBox { MinWidth = 24, MinHeight = 24, IsChecked = _selected.Contains(file.Path), VerticalAlignment = VerticalAlignment.Center };
-            AutomationProperties.SetName(check, "Include " + file.Path + " in commit"); row.Children.Add(check);
-            check.Checked += (_, _) => { if (!_updating) { _selected.Add(file.Path); SelectionChanged?.Invoke(this, EventArgs.Empty); } };
-            check.Unchecked += (_, _) => { if (!_updating) { _selected.Remove(file.Path); SelectionChanged?.Invoke(this, EventArgs.Empty); } };
-            var name = GitTheme.Label(file.Path, 12); Grid.SetColumn(name, 1); row.Children.Add(name);
-            var status = GitTheme.Label(file.Status == "A" ? "+" : file.Status == "D" ? "−" : file.Conflict ? "!" : "•", 15, bold: true);
-            status.Foreground = GitTheme.Brush(file.Status == "A" ? "#3fb950" : file.Status == "D" || file.Conflict ? "#f85149" : "#d29922"); Grid.SetColumn(status, 2); row.Children.Add(status);
-            var item = new ListViewItem { Content = row, Tag = file, Padding = new Thickness(0), Margin = new Thickness(0), MinHeight = 30, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-            AutomationProperties.SetName(item, file.Path + " · " + file.Status); _list.Items.Add(item);
-            if (file.Path == _active) _list.SelectedItem = item;
+            if (_rows.TryGetValue(file.Path, out var row)) row.Update(file);
+            else _rows[file.Path] = new(file, true, RowChanged);
         }
-        _updating = false;
+        _files = files; _active = active; _updating = false; ReconcileVisible(); UpdateHeader();
+    }
+    private void ReconcileVisible()
+    {
+        var visible = _files.Where(f => f.Path.Contains(_filter.Text, StringComparison.OrdinalIgnoreCase)).Select(f => _rows[f.Path]).ToArray();
+        _updating = true;
+        // No ItemsSource reset for a status-only refresh: preserve containers, scroll and focus.
+        if (!_visible.SequenceEqual(visible)) { _visible = visible; _list.ItemsSource = visible; }
+        _list.SelectedItem = _rows.GetValueOrDefault(_active); _updating = false;
     }
 }
 
+public sealed class HistoryRow(GitCommit commit)
+{
+    public GitCommit Commit { get; } = commit;
+    public string Summary => Commit.Summary;
+    public string Metadata { get; } = commit.Author + " · " + (DateTimeOffset.TryParse(commit.Date, out var date) ? date.ToLocalTime().ToString("MMM d, HH:mm") : commit.Date);
+    public string Search { get; } = commit.Message + " " + commit.Author + " " + commit.Id;
+}
 public sealed class HistoryView : Grid
 {
     private readonly ListView _list = new() { SelectionMode = ListViewSelectionMode.Single, Padding = new Thickness(0) };
     private readonly TextBox _filter = GitTheme.Input("Filter history");
-    private GitCommit[] _commits = [];
+    private readonly GitButton _more;
+    private HistoryRow[] _rows = [], _visible = [];
     private bool _updating;
     public event EventHandler<GitCommit>? CommitSelected;
+    public event EventHandler? LoadMoreRequested;
     public HistoryView()
     {
-        RowDefinitions.Add(new() { Height = new GridLength(40) }); RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new() { Height = new GridLength(40) }); RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); RowDefinitions.Add(new() { Height = GridLength.Auto });
         _filter.Margin = new Thickness(10, 5, 10, 5); Children.Add(_filter); Grid.SetRow(_list, 1); Children.Add(_list);
+        _more = new GitButton("Load 200 more commits", () => LoadMoreRequested?.Invoke(this, EventArgs.Empty)) { Margin = new Thickness(10, 5, 10, 5), HorizontalAlignment = HorizontalAlignment.Stretch, Visibility = Visibility.Collapsed };
+        Grid.SetRow(_more, 2); Children.Add(_more);
+        _list.ItemTemplate = (DataTemplate)XamlReader.Load("""
+            <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+              <StackPanel Padding="6,7" Spacing="5">
+                <TextBlock Text="{Binding Summary}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text="{Binding Metadata}" FontSize="10" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
+              </StackPanel>
+            </DataTemplate>
+            """);
+        _list.ItemContainerStyle = ChangedFilesView.RowStyle(54);
         AutomationProperties.SetName(_filter, "Filter commit history"); AutomationProperties.SetName(_list, "Commit history");
-        _filter.TextChanged += (_, _) => Rebuild();
-        _list.SelectionChanged += (_, _) => { if (!_updating && _list.SelectedItem is ListViewItem { Tag: GitCommit commit }) CommitSelected?.Invoke(this, commit); };
+        _filter.TextChanged += (_, _) => Reconcile();
+        _list.SelectionChanged += (_, _) => { if (!_updating && _list.SelectedItem is HistoryRow row) CommitSelected?.Invoke(this, row.Commit); };
     }
-    public void SetCommits(GitCommit[] commits) { _commits = commits; Rebuild(); }
-    private void Rebuild()
+    public void SetCommits(GitCommit[] commits, bool hasMore = false)
     {
-        var selected = (_list.SelectedItem as ListViewItem)?.Tag as GitCommit; _updating = true; _list.Items.Clear();
-        foreach (var commit in _commits.Where(c => (c.Message + c.Author + c.Id).Contains(_filter.Text, StringComparison.OrdinalIgnoreCase)))
-        {
-            var panel = new StackPanel { Spacing = 5, Padding = new Thickness(12, 8, 12, 8) };
-            panel.Children.Add(GitTheme.Label(commit.Summary, 12, bold: true));
-            var date = DateTimeOffset.TryParse(commit.Date, out var when) ? when.ToLocalTime().ToString("MMM d, HH:mm") : commit.Date;
-            panel.Children.Add(GitTheme.Label("●  " + commit.Author + "  ·  " + date, 10, true));
-            var item = new ListViewItem { Content = panel, Tag = commit, Padding = new Thickness(0), MinHeight = 54, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-            AutomationProperties.SetName(item, commit.Summary + " by " + commit.Author); _list.Items.Add(item);
-            if (selected?.Id == commit.Id) _list.SelectedItem = item;
-        }
-        _updating = false;
+        _more.Visibility = hasMore && commits.Length < 2000 ? Visibility.Visible : Visibility.Collapsed;
+        if (_rows.Select(r => r.Commit.Id).SequenceEqual(commits.Select(c => c.Id))) return;
+        var existing = _rows.ToDictionary(r => r.Commit.Id); _rows = commits.Select(c => existing.GetValueOrDefault(c.Id) ?? new HistoryRow(c)).ToArray(); Reconcile();
+    }
+    private void Reconcile()
+    {
+        var selected = _list.SelectedItem as HistoryRow; var visible = _rows.Where(r => r.Search.Contains(_filter.Text, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (_visible.SequenceEqual(visible)) return;
+        _updating = true; _visible = visible; _list.ItemsSource = visible;
+        _list.SelectedItem = selected is not null ? visible.FirstOrDefault(r => r.Commit.Id == selected.Commit.Id) : null; _updating = false;
     }
 }

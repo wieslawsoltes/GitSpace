@@ -6,12 +6,12 @@ namespace GitSpace.Core;
 public sealed record GitChange(string Path, string Status = "M", bool Staged = false, bool Conflict = false, string OriginalPath = "");
 public sealed record GitCommit(string Id, string Author, string Email, string Date, string Message, string[] Parents)
 {
-    public string Summary => Message.Split('\n')[0];
+    public string Summary => Message.Split(['\r', '\n'])[0];
     public string ShortId => Id.Length > 7 ? Id[..7] : Id;
 }
 public sealed record GitStash(string Id, string Message);
 public sealed record GitRemote(string Name, string Url);
-public sealed record GitSnapshot
+public sealed partial record GitSnapshot
 {
     public string Root { get; init; } = "";
     public string Name { get; init; } = "";
@@ -29,7 +29,7 @@ public sealed record GitSnapshot
 }
 
 /// <summary>Explicit, transport-neutral commands. No command contains a shell fragment.</summary>
-public sealed record GitRequest(string Operation)
+public sealed partial record GitRequest(string Operation)
 {
     public string Root { get; init; } = "";
     public string Path { get; init; } = "";
@@ -43,7 +43,7 @@ public sealed record GitRequest(string Operation)
     public string Proxy { get; init; } = "";
     public string Token { get; init; } = "";
 }
-public sealed record GitResult
+public sealed partial record GitResult
 {
     public GitSnapshot? Snapshot { get; init; }
     public GitChange[] Changes { get; init; } = [];

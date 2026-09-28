@@ -8,6 +8,7 @@ public sealed record WorkspacePreferences
     public string Author { get; init; } = "GitSpace User";
     public string Email { get; init; } = "user@example.com";
     public string LastRepository { get; init; } = "";
+    public string[] RecentRepositories { get; init; } = [];
     public bool Dark { get; init; } = true;
     public bool SplitDiff { get; init; }
     public bool IgnoreWhitespace { get; init; }

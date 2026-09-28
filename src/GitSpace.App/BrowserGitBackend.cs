@@ -11,7 +11,7 @@ internal sealed class BrowserGitBackend : IGitBackend
     private int _nextId;
     public string DisplayName => "Browser Git · IndexedDB worker";
     public IReadOnlySet<string> Capabilities { get; } = new HashSet<string>(StringComparer.Ordinal)
-    { "demo", "init", "open", "clone", "refresh", "diff", "commitFiles", "read", "write", "stage", "unstage", "commit", "amend", "discard", "branch", "checkout", "renameBranch", "deleteBranch", "remote", "fetch", "pull", "push", "merge", "tag", "deleteTag", "stash", "stashApply", "stashDrop", "export" };
+    { "review", "stageText", "unstageText", "commitStaged", "history", "demo", "init", "open", "clone", "refresh", "diff", "commitFiles", "read", "write", "stage", "unstage", "commit", "amend", "discard", "branch", "checkout", "renameBranch", "deleteBranch", "remote", "fetch", "pull", "push", "merge", "tag", "deleteTag", "stash", "stashApply", "stashDrop", "export" };
     private void Start()
     {
         if (_started) return;

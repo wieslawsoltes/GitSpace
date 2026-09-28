@@ -27,12 +27,16 @@ public sealed class DiffViewer : Grid, IDisposable
     private readonly ScrollBar _vertical, _horizontal;
     private bool _updating;
     private int _searchRow = -1, _longestLine;
+    private readonly HashSet<int> _selected = [];
+    private int _anchor = -1;
+    public event EventHandler? SelectionChanged;
+    public int[] SelectedChangedRows => _selected.Where(i => Renderer.Document is { } d && i >= 0 && i < d.Lines.Count && d.Lines[i].Kind != DiffKind.Context).Order().ToArray();
     public DiffRenderer Renderer { get; } = new();
     public DiffViewport Viewport { get; } = new();
     public event EventHandler? Rendered;
     public DiffViewer()
     {
-        Background = GitTheme.Brush(GitTheme.Current.Surface); IsTabStop = true;
+        Background = GitTheme.Brush(GitTheme.Current.Surface); IsTabStop = true; Viewport.SelectedRows = _selected;
         AutomationProperties.SetName(this, "Diff viewer"); AutomationProperties.SetHelpText(this, "Use arrow keys, Page Up, Page Down, Home and End to navigate. Copy selected line with Control+C. Full screen-reader text navigation is not yet provided.");
         ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); ColumnDefinitions.Add(new() { Width = new GridLength(12) });
         RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); RowDefinitions.Add(new() { Height = new GridLength(12) });
@@ -50,7 +54,14 @@ public sealed class DiffViewer : Grid, IDisposable
         _surface.PointerPressed += (_, e) =>
         {
             Focus(FocusState.Pointer); var point = e.GetCurrentPoint(_surface).Position;
-            Viewport.SelectedRow = Math.Clamp((int)((point.Y + Viewport.ScrollY) / Viewport.RowHeight), 0, Math.Max(0, Renderer.RowCount(Viewport.Split) - 1));
+            var row = Math.Clamp((int)((point.Y + Viewport.ScrollY) / Viewport.RowHeight), 0, Math.Max(0, Renderer.RowCount(Viewport.Split) - 1));
+            if ((e.KeyModifiers & VirtualKeyModifiers.Shift) != 0 && _anchor >= 0)
+            {
+                _selected.Clear(); for (var i = Math.Min(_anchor, row); i <= Math.Max(_anchor, row); i++) _selected.Add(i);
+            }
+            else if ((e.KeyModifiers & VirtualKeyModifiers.Control) != 0) { if (!_selected.Add(row)) _selected.Remove(row); _anchor = row; }
+            else { _selected.Clear(); _selected.Add(row); _anchor = row; }
+            Viewport.SelectedRow = row; SelectionChanged?.Invoke(this, EventArgs.Empty);
             _surface.Invalidate(); e.Handled = true;
         };
         KeyDown += (_, e) =>
@@ -65,7 +76,7 @@ public sealed class DiffViewer : Grid, IDisposable
     }
     public void SetDocument(DiffDocument? document)
     {
-        Renderer.SetDocument(document); _longestLine = document is { Lines.Count: > 0 } ? document.Lines.Max(l => l.Text.Length) : 0;
+        _selected.Clear(); _anchor = -1; Renderer.SetDocument(document); _longestLine = document is { Lines.Count: > 0 } ? document.Lines.Max(l => l.Text.Length) : 0;
         Viewport.ScrollX = Viewport.ScrollY = 0; Viewport.SelectedRow = -1; _searchRow = -1; UpdateScrollbars();
         AutomationProperties.SetHelpText(this, document is null ? "No diff loaded" : $"{document.Additions} additions, {document.Deletions} deletions, {document.Lines.Count} lines. Use Copy entire diff for accessible text.");
     }
@@ -104,5 +115,5 @@ public sealed class DiffViewer : Grid, IDisposable
         _horizontal.ViewportSize = width; Viewport.ScrollX = Math.Clamp(Viewport.ScrollX, 0, _horizontal.Maximum); _horizontal.Value = Viewport.ScrollX;
         _updating = false; _surface.Invalidate();
     }
-    public void Dispose() => Renderer.Dispose();
+    public new void Dispose() => Renderer.Dispose();
 }

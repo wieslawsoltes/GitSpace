@@ -29,8 +29,13 @@ public static class DiffEngine
     /// <summary>Myers shortest edit script with a hard work/trace budget; a coarse replacement is returned rather than freezing the UI.</summary>
     public static DiffDocument Compare(string before, string after, bool ignoreWhitespace = false, int workBudget = 2_000_000, CancellationToken cancellation = default)
     {
-        var a = Lines(before); var b = Lines(after);
-        bool Equal(string x, string y) => ignoreWhitespace ? Normalize(x) == Normalize(y) : x == y;
+        ArgumentNullException.ThrowIfNull(before); ArgumentNullException.ThrowIfNull(after);
+        return CompareTokens(Lines(before), Lines(after), EndsInNewline(before), EndsInNewline(after), ignoreWhitespace, workBudget, cancellation);
+    }
+    internal static DiffDocument CompareTokens(string[] a, string[] b, bool oldNewline, bool newNewline, bool ignoreWhitespace, int workBudget, CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        bool Equal(string x, string y) => ignoreWhitespace ? WhitespaceEqual(x, y) : x == y;
         var prefix = 0; while (prefix < a.Length && prefix < b.Length && Equal(a[prefix], b[prefix])) prefix++;
         var suffix = 0; while (suffix < a.Length - prefix && suffix < b.Length - prefix && Equal(a[^(suffix + 1)], b[^(suffix + 1)])) suffix++;
         var edits = new List<Edit>(a.Length + b.Length);
@@ -85,15 +90,26 @@ public static class DiffEngine
         for (var i = b.Length - suffix; i < b.Length; i++) edits.Add(new(DiffKind.Context, b[i]));
         var oldLine = 1; var newLine = 1; var result = new List<DiffLine>(edits.Count);
         foreach (var edit in edits) result.Add(new(edit.Kind, edit.Text, edit.Kind == DiffKind.Addition ? 0 : oldLine++, edit.Kind == DiffKind.Deletion ? 0 : newLine++));
-        return new(result, coarse, before.EndsWith('\n'), after.EndsWith('\n'));
+        return new(result, coarse, oldNewline, newNewline);
     }
     public static string[] Lines(string text)
     {
         if (text.Length == 0) return [];
-        var result = text.Replace("\r\n", "\n").Split('\n');
-        return text.EndsWith('\n') ? result[..^1] : result;
+        var result = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        return EndsInNewline(text) ? result[..^1] : result;
     }
-    private static string Normalize(string text) => string.Concat(text.Where(c => !char.IsWhiteSpace(c)));
+    private static bool EndsInNewline(string text) => text.EndsWith('\r') || text.EndsWith('\n');
+    private static bool WhitespaceEqual(string left, string right)
+    {
+        var a = 0; var b = 0;
+        while (true)
+        {
+            while (a < left.Length && char.IsWhiteSpace(left[a])) a++;
+            while (b < right.Length && char.IsWhiteSpace(right[b])) b++;
+            if (a == left.Length || b == right.Length) return a == left.Length && b == right.Length;
+            if (left[a++] != right[b++]) return false;
+        }
+    }
     public static (int Start, int OldLength, int NewLength) ChangedSpan(string before, string after)
     {
         var start = 0; while (start < before.Length && start < after.Length && before[start] == after[start]) start++;
@@ -103,7 +119,11 @@ public static class DiffEngine
     public static (int First, int Last) VisibleRange(int count, double scroll, double height, double rowHeight)
     {
         if (rowHeight <= 0 || !double.IsFinite(rowHeight)) throw new ArgumentOutOfRangeException(nameof(rowHeight));
-        var first = Math.Clamp((int)Math.Floor(Math.Max(0, scroll) / rowHeight), 0, count);
-        return (first, Math.Clamp(first + (int)Math.Ceiling(Math.Max(0, height) / rowHeight) + 1, first, count));
+        if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
+        if (double.IsNaN(scroll)) scroll = 0;
+        if (double.IsNaN(height)) height = 0;
+        var first = (int)Math.Clamp(Math.Floor(Math.Max(0, scroll) / rowHeight), 0, count);
+        var visible = (int)Math.Clamp(Math.Ceiling(Math.Max(0, height) / rowHeight) + 1, 0, count - first);
+        return (first, first + visible);
     }
 }

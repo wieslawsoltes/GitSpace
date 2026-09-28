@@ -33,7 +33,7 @@ public sealed partial class DesktopGitBackend
         var full = SafeFile(path);
         if (!File.Exists(full)) return "";
         if (new FileInfo(full).Length > GitSafety.MaximumTextBytes) throw new InvalidDataException("File exceeds the 2 MiB text preview limit.");
-        var text = await File.ReadAllTextAsync(full, new UTF8Encoding(false, true), ct).ConfigureAwait(false); GitSafety.Text(text); return text;
+        var text = GitText.Utf8.GetString(await File.ReadAllBytesAsync(full, ct).ConfigureAwait(false)); GitSafety.Text(text); return text;
     }
     private async Task<string> Blob(string revision, string path, CancellationToken ct)
     {
@@ -61,7 +61,10 @@ public sealed partial class DesktopGitBackend
     }
     private async Task<GitChange[]> CommitFiles(string id, CancellationToken ct)
     {
-        var output = await Run(ct, "diff-tree", "--root", "--no-commit-id", "-r", "--name-status", "-z", id).ConfigureAwait(false);
+        var parent = await Optional(ct, "rev-parse", "--verify", id + "^1").ConfigureAwait(false);
+        var args = new List<string> { "diff-tree", "--root", "--no-commit-id", "-r", "--no-renames", "--name-status", "-z" };
+        if (parent.Length != 0) args.Add(parent);
+        args.Add(id); var output = await Run(ct, args.ToArray()).ConfigureAwait(false);
         var tokens = output.Output.Split('\0'); var result = new List<GitChange>();
         for (var i = 0; i + 1 < tokens.Length; i += 2) if (tokens[i].Length != 0) result.Add(new(tokens[i + 1], tokens[i][..1]));
         return result.ToArray();
@@ -80,7 +83,7 @@ public sealed partial class DesktopGitBackend
         var status = Run(ct, "status", "--porcelain=v1", "-z", "--untracked-files=all");
         var head = Optional(ct, "rev-parse", "--verify", "HEAD");
         var branch = Optional(ct, "symbolic-ref", "--short", "HEAD");
-        var log = Optional(ct, "log", "-z", "-n", "200", "--format=%H%x00%an%x00%ae%x00%aI%x00%P%x00%B");
+        var log = LoadHistory(head, ct);
         var branches = Optional(ct, "branch", "--format=%(refname:short)");
         var tags = Optional(ct, "tag", "--list");
         var stashes = Optional(ct, "stash", "list", "--format=%gd%x09%gs");
@@ -93,7 +96,8 @@ public sealed partial class DesktopGitBackend
         return new()
         {
             Root = _root, Name = Path.GetFileName(_root), Head = await head.ConfigureAwait(false), Branch = (await branch.ConfigureAwait(false)) is { Length: > 0 } b ? b : "Detached HEAD",
-            Changes = StatusParser.Parse((await status.ConfigureAwait(false)).Output), Commits = StatusParser.Log(await log.ConfigureAwait(false)),
+            Changes = StatusParser.Parse((await status.ConfigureAwait(false)).Output), Commits = (await log.ConfigureAwait(false)).Take(_historyLimit).ToArray(),
+            HasMoreHistory = (await log.ConfigureAwait(false)).Length > _historyLimit, HistoryLimit = _historyLimit, IndexHash = await IndexHash(ct).ConfigureAwait(false),
             Branches = Split(await branches.ConfigureAwait(false)), Tags = Split(await tags.ConfigureAwait(false)), Remotes = remotes.ToArray(),
             Stashes = Split(await stashes.ConfigureAwait(false)).Select(line => { var i = line.IndexOf('\t'); return new GitStash(i < 0 ? line : line[..i], i < 0 ? "" : line[(i + 1)..]); }).ToArray(),
             Ahead = countValues.Length == 2 && int.TryParse(countValues[0], out var a) ? a : 0,

@@ -13,7 +13,7 @@ public sealed class GitProcess : IDisposable
 {
     private readonly string _hooks = Path.Combine(Path.GetTempPath(), "gitspace-hooks-" + Guid.NewGuid().ToString("N"));
     public GitProcess() => Directory.CreateDirectory(_hooks);
-    public async Task<GitProcessResult> RunAsync(string directory, IEnumerable<string> arguments, CancellationToken cancellation = default, string? input = null, bool allowFailure = false)
+    public async Task<GitProcessResult> RunAsync(string directory, IEnumerable<string> arguments, CancellationToken cancellation = default, string? input = null, bool allowFailure = false, IReadOnlyDictionary<string, string>? environment = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         timeout.CancelAfter(TimeSpan.FromMinutes(10));
@@ -34,28 +34,31 @@ public sealed class GitProcess : IDisposable
         info.Environment["GIT_TERMINAL_PROMPT"] = "0";
         info.Environment["GIT_EDITOR"] = "true";
         info.Environment["GIT_SEQUENCE_EDITOR"] = "true";
+        if (environment is not null) foreach (var pair in environment) info.Environment[pair.Key] = pair.Value;
         using var process = new Process { StartInfo = info };
         try { if (!process.Start()) throw new InvalidOperationException("Git did not start."); }
         catch (System.ComponentModel.Win32Exception e) { throw new InvalidOperationException("Install Git 2.30 or newer and make it available on PATH.", e); }
         void Kill() { try { if (!process.HasExited) process.Kill(true); } catch (InvalidOperationException) { } }
         using var registration = timeout.Token.Register(Kill);
-        async Task<string> Read(StreamReader reader)
+        async Task<string> Read(Stream stream, Encoding encoding)
         {
-            var result = new StringBuilder(); var buffer = new char[8192];
+            using var result = new MemoryStream(); var buffer = new byte[8192];
             try
             {
                 while (true)
                 {
-                    var count = await reader.ReadAsync(buffer.AsMemory(), timeout.Token).ConfigureAwait(false);
+                    var count = await stream.ReadAsync(buffer, timeout.Token).ConfigureAwait(false);
                     if (count == 0) break;
-                    if (result.Length + count > 16 * 1024 * 1024) throw new InvalidDataException("Git output exceeds the 16 MiB safety limit. Narrow the operation.");
-                    result.Append(buffer, 0, count);
+                    if (result.Length + count > 16 * 1024 * 1024) throw new InvalidDataException("Git output exceeds the 16 MiB safety limit.");
+                    result.Write(buffer, 0, count);
                 }
-                return result.ToString();
+                // Do not let StreamReader strip a file's UTF-8 BOM or guess an encoding.
+                return encoding.GetString(result.GetBuffer(), 0, checked((int)result.Length));
             }
             catch { Kill(); throw; }
         }
-        var stdout = Read(process.StandardOutput); var stderr = Read(process.StandardError);
+        var stdout = Read(process.StandardOutput.BaseStream, new UTF8Encoding(false, true));
+        var stderr = Read(process.StandardError.BaseStream, Encoding.UTF8);
         try
         {
             if (input is not null) await process.StandardInput.WriteAsync(input.AsMemory(), timeout.Token).ConfigureAwait(false);

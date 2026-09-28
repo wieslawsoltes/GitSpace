@@ -10,7 +10,7 @@ public sealed partial class DesktopGitBackend : IGitBackend
     private string _root = "";
     public string DisplayName => "System Git · desktop";
     public IReadOnlySet<string> Capabilities { get; } = new HashSet<string>(StringComparer.Ordinal)
-    { "demo", "open", "init", "clone", "refresh", "diff", "commitFiles", "read", "write", "stage", "unstage", "commit", "amend", "discard", "branch", "checkout", "renameBranch", "deleteBranch", "fetch", "pull", "push", "remote", "stash", "stashApply", "stashDrop", "merge", "rebase", "continue", "abort", "revert", "cherryPick", "tag", "deleteTag" };
+    { "review", "stageText", "unstageText", "commitStaged", "history", "conflict", "resolveConflict", "demo", "open", "init", "clone", "refresh", "diff", "commitFiles", "read", "write", "stage", "unstage", "commit", "amend", "discard", "branch", "checkout", "renameBranch", "deleteBranch", "fetch", "pull", "push", "remote", "stash", "stashApply", "stashDrop", "merge", "rebase", "continue", "abort", "revert", "cherryPick", "tag", "deleteTag" };
     private Task<GitProcessResult> Run(CancellationToken ct, params string[] args) => _git.RunAsync(_root, args, ct);
     private async Task<string> Optional(CancellationToken ct, params string[] args)
     {
@@ -37,15 +37,27 @@ public sealed partial class DesktopGitBackend : IGitBackend
                 }
                 var result = await _git.RunAsync(target, ["rev-parse", "--show-toplevel"], cancellation).ConfigureAwait(false);
                 _root = RepositoryPath.CanonicalDirectory(result.Output.Trim());
+                _historyLimit = 200; _cachedHistoryKey = "";
                 return new() { Snapshot = await Snapshot(cancellation).ConfigureAwait(false) };
             }
             if (_root.Length == 0) throw new InvalidOperationException("Open a repository first.");
             if (request.Root.Length != 0 && !RepositoryPath.SameDirectory(request.Root, _root)) throw new InvalidOperationException("Repository changed; refresh before continuing.");
-            if (op is not ("refresh" or "diff" or "read" or "commitFiles") && request.ExpectedHead.Length != 0 && request.ExpectedHead != await Optional(cancellation, "rev-parse", "--verify", "HEAD").ConfigureAwait(false))
+            if (op is not ("refresh" or "diff" or "read" or "commitFiles" or "review" or "conflict" or "history") && request.ExpectedHead.Length != 0 && request.ExpectedHead != await Optional(cancellation, "rev-parse", "--verify", "HEAD").ConfigureAwait(false))
                 throw new InvalidOperationException("HEAD changed outside GitSpace. Refresh and review before retrying.");
             switch (op)
             {
                 case "refresh": break;
+                case "history": _historyLimit = Math.Clamp(request.Limit, 1, 2000); break;
+                case "review": return await Review(request, cancellation).ConfigureAwait(false);
+                case "stageText": case "unstageText": await UpdateSelectedText(request, cancellation).ConfigureAwait(false); break;
+                case "commitStaged":
+                    GitText.Verify(request.IndexHash, await IndexHash(cancellation).ConfigureAwait(false));
+                    if (string.IsNullOrWhiteSpace(request.Message)) throw new ArgumentException("A commit summary is required.");
+                    ValidateAuthor(request);
+                    if (await Operation(cancellation).ConfigureAwait(false) != "") throw new InvalidOperationException("Use Continue to finish the active operation.");
+                    await Run(cancellation, "-c", "user.name=" + request.Author, "-c", "user.email=" + request.Email, "commit", "-m", GitText.ToLf(request.Message)).ConfigureAwait(false); break;
+                case "conflict": return await ReadConflict(request.Path, cancellation).ConfigureAwait(false);
+                case "resolveConflict": await ResolveConflict(request, cancellation).ConfigureAwait(false); break;
                 case "read": return new() { Text = await ReadWorktree(request.Path, cancellation).ConfigureAwait(false) };
                 case "write":
                     GitSafety.Text(request.Message); var full = SafeFile(request.Path); Directory.CreateDirectory(Path.GetDirectoryName(full)!);
@@ -86,14 +98,14 @@ public sealed partial class DesktopGitBackend : IGitBackend
                     if (!System.Text.RegularExpressions.Regex.IsMatch(request.Value, "^stash@\\{[0-9]+\\}$")) throw new ArgumentException("Invalid stash reference.");
                     if (op == "stashDrop") GitSafety.Confirm(request);
                     await Run(cancellation, "stash", op == "stashApply" ? "apply" : "drop", request.Value).ConfigureAwait(false); break;
-                case "merge": GitSafety.Confirm(request); await Run(cancellation, "merge", "--no-edit", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
-                case "rebase": GitSafety.Confirm(request); await Run(cancellation, "rebase", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
+                case "merge": GitSafety.Confirm(request); await RunAsAuthor(request, cancellation, "merge", "--no-edit", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
+                case "rebase": GitSafety.Confirm(request); await RunAsAuthor(request, cancellation, "rebase", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
                 case "revert": case "cherryPick":
-                    GitSafety.Confirm(request); await Run(cancellation, op == "revert" ? "revert" : "cherry-pick", "--no-edit", GitSafety.CommitId(request.Value)).ConfigureAwait(false); break;
+                    GitSafety.Confirm(request); await RunAsAuthor(request, cancellation, op == "revert" ? "revert" : "cherry-pick", "--no-edit", GitSafety.CommitId(request.Value)).ConfigureAwait(false); break;
                 case "continue": case "abort":
                     GitSafety.Confirm(request); var operation = await Operation(cancellation).ConfigureAwait(false);
                     if (operation.Length == 0) throw new InvalidOperationException("No merge, rebase, cherry-pick or revert is in progress.");
-                    await Run(cancellation, operation, "--" + op).ConfigureAwait(false); break;
+                    await RunAsAuthor(request, cancellation, operation, "--" + op).ConfigureAwait(false); break;
                 case "tag": await Run(cancellation, "tag", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
                 case "deleteTag": GitSafety.Confirm(request); await Run(cancellation, "tag", "-d", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
             }

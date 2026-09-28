@@ -18,6 +18,7 @@ public sealed class DiffViewport
     public float RowHeight => MathF.Ceiling(FontSize * 1.62f);
     public bool Split { get; set; }
     public int SelectedRow { get; set; } = -1;
+    public IReadOnlySet<int>? SelectedRows { get; set; }
     public DiffPalette Palette { get; set; } = DiffPalette.Dark;
 }
 /// <summary>Draws only visible rows. No UI framework, process access or repository state is required.</summary>
@@ -30,13 +31,13 @@ public sealed class DiffRenderer : IDisposable
     private SKFont? _font;
     private SKTypeface? _ownedTypeface;
     private DiffDocument? _document;
-    private IReadOnlyList<SplitLine> _split = [];
+    private IReadOnlyList<SplitLine>? _split;
     public long FramesRendered { get; private set; }
     public int LastVisibleRows { get; private set; }
     public double LastFrameMilliseconds { get; private set; }
     public DiffDocument? Document => _document;
-    public void SetDocument(DiffDocument? document) { _document = document; _split = document?.Split() ?? []; }
-    public int RowCount(bool split) => split ? _split.Count : _document?.Lines.Count ?? 0;
+    public void SetDocument(DiffDocument? document) { _document = document; _split = null; }
+    public int RowCount(bool split) => split ? (_split ??= _document?.Split() ?? []).Count : _document?.Lines.Count ?? 0;
     public void Draw(SKCanvas canvas, SKRect bounds, DiffViewport view)
     {
         var watch = Stopwatch.StartNew(); FramesRendered++; var p = view.Palette;
@@ -49,9 +50,9 @@ public sealed class DiffRenderer : IDisposable
             var top = bounds.Top + row * view.RowHeight - (float)view.ScrollY;
             if (view.Split)
             {
-                var split = _split[row]; var half = bounds.Width / 2;
-                Cell(canvas, split.Left, new(bounds.Left, top, bounds.Left + half, top + view.RowHeight), view, true, row == view.SelectedRow);
-                Cell(canvas, split.Right, new(bounds.Left + half, top, bounds.Right, top + view.RowHeight), view, false, row == view.SelectedRow);
+                var split = _split![row]; var half = bounds.Width / 2;
+                Cell(canvas, split.Left, new(bounds.Left, top, bounds.Left + half, top + view.RowHeight), view, true, (view.SelectedRows?.Contains(row) == true || row == view.SelectedRow));
+                Cell(canvas, split.Right, new(bounds.Left + half, top, bounds.Right, top + view.RowHeight), view, false, (view.SelectedRows?.Contains(row) == true || row == view.SelectedRow));
                 if (split.Left?.Kind == DiffKind.Deletion && split.Right?.Kind == DiffKind.Addition)
                 {
                     var span = DiffEngine.ChangedSpan(split.Left.Text, split.Right.Text);
@@ -62,7 +63,7 @@ public sealed class DiffRenderer : IDisposable
                     TextOnly(canvas, split.Right, new(bounds.Left + half, top, bounds.Right, top + view.RowHeight), view, 65);
                 }
             }
-            else Cell(canvas, _document!.Lines[row], new(bounds.Left, top, bounds.Right, top + view.RowHeight), view, null, row == view.SelectedRow);
+            else Cell(canvas, _document!.Lines[row], new(bounds.Left, top, bounds.Right, top + view.RowHeight), view, null, (view.SelectedRows?.Contains(row) == true || row == view.SelectedRow));
         }
         _rule.Color = p.Border;
         if (view.Split) canvas.DrawLine(bounds.MidX, bounds.Top, bounds.MidX, bounds.Bottom, _rule);

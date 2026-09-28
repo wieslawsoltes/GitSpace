@@ -4,17 +4,28 @@
   "description": "Worker-ready real Git repositories for browser storage, with guarded GitSpace command contracts",
   "type": "module",
   "license": "MIT",
-  "exports": { ".": "./backend.mjs", "./worker": "./dist/worker.js" },
-  "files": ["backend.mjs", "worker.mjs", "buffer-shim.mjs", "dist", "README.md"],
-  "scripts": {
-    "build": "esbuild worker.mjs --bundle --format=esm --platform=browser --target=es2022 --inject:./buffer-shim.mjs --outfile=dist/worker.js",
-    "test": "node --test ../../tests/browser/backend.test.mjs"
+  "exports": {
+    ".": "./dist/backend.js",
+    "./worker": "./dist/worker.js"
   },
-  "dependencies": {
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "npm run build && node --test ../../tests/browser/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10",
     "isomorphic-git": "1.42.3",
     "@isomorphic-git/lightning-fs": "4.6.0",
     "fflate": "0.8.2"
   },
-  "devDependencies": { "esbuild": "0.25.10" },
-  "repository": { "type": "git", "url": "https://github.com/wieslawsoltes/GitSpace.git", "directory": "src/GitSpace.BrowserGit" }
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wieslawsoltes/GitSpace.git",
+    "directory": "src/GitSpace.BrowserGit"
+  }
 }

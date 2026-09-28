@@ -25,7 +25,7 @@ if len(workers) != 1:
     raise SystemExit('Expected the standalone npm package')
 with tarfile.open(workers[0]) as archive:
     names = archive.getnames()
-    for entry in ['package/backend.mjs', 'package/dist/worker.js', 'package/README.md']:
+    for entry in ['package/dist/backend.js', 'package/dist/worker.js', 'package/README.md']:
         if entry not in names:
             raise SystemExit('Missing npm package payload: ' + entry)
 print('Verified', workers[0].name)
