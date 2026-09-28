@@ -1,22 +1,32 @@
 name: Browser dependency qualification
 on:
   pull_request:
-    paths:
-      - '.github/workflows/dependency-audit.yml'
-  workflow_dispatch:
+    paths: ['.github/workflows/dependency-audit.yml']
 permissions:
   contents: read
 jobs:
   qualify:
+    if: github.event.pull_request.head.ref == 'feature/parity-workflows-performance' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == github.repository_owner
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: feature/parity-workflows-performance
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Resolve permissive Git implementation
-        run: npm install --prefix src/GitSpace.BrowserGit --save-exact isomorphic-git@1.33.1 --no-audit --no-fund
+      - name: Resolve permissive Git implementation and explicit Buffer dependency
+        run: npm install --prefix src/GitSpace.BrowserGit --save-exact isomorphic-git@1.33.1 buffer@6.0.3 --no-audit --no-fund
+      - name: Record the resolved dependency graph on this implementation branch
+        run: |
+          git add src/GitSpace.BrowserGit/package.json src/GitSpace.BrowserGit/package-lock.json
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'build: pin permissive browser Git and explicit Buffer dependency'
+            git push origin HEAD:feature/parity-workflows-performance
+          fi
       - name: Bundle and inspect production worker
         run: |
           npm run build --prefix src/GitSpace.BrowserGit
