@@ -158,9 +158,12 @@ try {
   await check('theme switch preserves the worktree', async () => {
     await menu('View', 'Toggle light / dark appearance'); await ready();
     assert.equal(await page.evaluate(() => gitspaceDiagnostics.changes), 1); assert.equal(await page.evaluate(() => gitspaceDiagnostics.rowCount), 2);
-    // Semantic text updates follow the managed theme rebuild on the next layout pass.
-    await page.getByText('Select a file to review', { exact: true }).waitFor({ state: 'detached' });
-    await page.locator('p').filter({ hasText: /^browser-test\.txt$/ }).waitFor({ state: 'visible' });
+    // Uno updates a TextBlock's accessible name through aria-label while the
+    // semantic paragraph's initial text node can remain unchanged.
+    await page.waitForFunction(() => {
+      const label = document.querySelector('[xamlautomationid="ReviewedFilePath"]');
+      return (label?.getAttribute('aria-label') || label?.textContent) === 'browser-test.txt';
+    });
   });
   await page.screenshot({ path: output + '/04-light-theme.png', fullPage: true });
   await check('reload preserves branch, history and multiline uncommitted work', async () => {

@@ -20,6 +20,7 @@ public sealed partial class WorkbenchView
     private string _renderedStatistics = "";
     private void InstallReviewToolbar(Grid toolbar)
     {
+        AutomationProperties.SetAutomationId(_fileLabel, "ReviewedFilePath");
         toolbar.RowDefinitions.Add(new() { Height = new GridLength(39) }); toolbar.RowDefinitions.Add(new() { Height = GridLength.Auto });
         _reviewBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Padding = new Thickness(0, 2, 0, 5) };
         var mode = new GitSegmentedSelector("Diff review mode", ("All", "All changes"), ("Unstaged", "Unstaged changes"), ("Staged", "Staged changes"))
