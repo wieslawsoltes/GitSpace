@@ -52,11 +52,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: src/GitSpace.BrowserGit/package-lock.json
       - run: dotnet workload install wasm-tools --skip-manifest-update
       - run: dotnet run --project tests/GitSpace.Tests -c Release
       - name: Browser backend and packages
         run: |
-          npm install --prefix src/GitSpace.BrowserGit --no-audit --no-fund
+          npm ci --prefix src/GitSpace.BrowserGit --no-audit --no-fund
           npm test --prefix src/GitSpace.BrowserGit
           npm run build --prefix src/GitSpace.BrowserGit
           mkdir -p artifacts/packages

@@ -40,9 +40,10 @@ public sealed class RepositoryTile : GitButton
     public RepositoryTile(string icon, string caption, string value, Action action, double width = double.NaN) : base(caption, action, accessibleName: caption)
     {
         Height = 60; Width = width; Padding = new Thickness(16, 8, 12, 8); HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        HorizontalAlignment = HorizontalAlignment.Stretch; VerticalAlignment = VerticalAlignment.Stretch;
         SetFlat("#24292e"); BorderThickness = new Thickness(0, 0, 1, 0); BorderBrush = GitTheme.Brush("#15191d");
         var grid = new Grid(); grid.ColumnDefinitions.Add(new() { Width = new GridLength(28) }); grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new() { Width = new GridLength(14) });
-        var glyph = GitTheme.Label(icon, 21); glyph.Foreground = GitTheme.Brush("#ffffff"); grid.Children.Add(glyph);
+        var glyph = new GitIcon(icon == "⑂" ? GitIconKind.Branch : icon == "↻" ? GitIconKind.Sync : GitIconKind.Repository) { Width = 20, Height = 20, Foreground = GitTheme.Brush("#ffffff"), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left }; grid.Children.Add(glyph);
         var labels = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(labels, 1);
         _caption = GitTheme.Label(caption, 10); _caption.Foreground = GitTheme.Brush("#b8bdc4");
         _value = GitTheme.Label(value, 14, bold: true); _value.Foreground = GitTheme.Brush("#ffffff"); labels.Children.Add(_caption); labels.Children.Add(_value); grid.Children.Add(labels);

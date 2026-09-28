@@ -21,6 +21,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: src/GitSpace.BrowserGit/package-lock.json
       - uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
@@ -28,9 +30,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gitspace-browser-
             ${{ runner.os }}-gitspace-nuget-
-      - name: Install and test real browser Git backend
+      - name: Test and bundle locked browser Git backend
         run: |
-          npm install --prefix src/GitSpace.BrowserGit --no-audit --no-fund
+          npm ci --prefix src/GitSpace.BrowserGit --no-audit --no-fund
           npm test --prefix src/GitSpace.BrowserGit
           npm run build --prefix src/GitSpace.BrowserGit
       - name: Install WebAssembly build tools
@@ -60,12 +62,18 @@ jobs:
           path: |
             artifacts/browser-tests
             artifacts/server.log
-      - name: Pack reusable libraries
+      - name: Include real screenshots and license notices
+        run: |
+          mkdir -p artifacts/site/screenshots artifacts/site/licenses
+          cp artifacts/browser-tests/0*.png artifacts/site/screenshots/
+          cp LICENSE THIRD-PARTY-NOTICES.md artifacts/site/licenses/
+      - name: Pack and validate reusable libraries
         run: |
           for project in Core Diff Git Hosting.GitHub Rendering.Skia Controls.Uno Workbench.Uno; do
             dotnet pack "src/GitSpace.$project/GitSpace.$project.csproj" -c Release -o artifacts/packages
           done
           npm pack ./src/GitSpace.BrowserGit --pack-destination artifacts/packages
+          python3 tools/verify-packages.py artifacts/packages
           git archive --format=zip -o artifacts/GitSpace-source.zip HEAD
       - uses: actions/upload-artifact@v4
         with:

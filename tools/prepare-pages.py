@@ -22,6 +22,8 @@ if not worker.exists():
     raise SystemExit('Build the browser Git worker before staging Pages')
 (destination / 'git').mkdir(exist_ok=True)
 shutil.copy2(worker, destination / 'git/worker.js')
+(destination / 'licenses').mkdir(exist_ok=True)
+shutil.copy2('src/GitSpace.App/Fonts/LICENSE-SourceCodePro.txt', destination / 'licenses/LICENSE-SourceCodePro.txt')
 (destination / '.nojekyll').touch()
 (destination / 'build-info.json').write_text(json.dumps({
     'application': 'GitSpace', 'version': '0.1.0',

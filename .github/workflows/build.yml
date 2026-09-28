@@ -23,18 +23,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Browser Git dependency install
-        run: npm install --prefix src/GitSpace.BrowserGit --no-audit --no-fund
+          cache: npm
+          cache-dependency-path: src/GitSpace.BrowserGit/package-lock.json
+      - name: Restore locked browser Git dependencies
+        run: npm ci --prefix src/GitSpace.BrowserGit --no-audit --no-fund
       - name: Real browser-backend Git contract tests
         run: npm test --prefix src/GitSpace.BrowserGit
       - name: Bundle isolated browser worker
         run: npm run build --prefix src/GitSpace.BrowserGit
       - uses: actions/upload-artifact@v4
         with:
-          name: browser-git-worker-and-lockfile
-          path: |
-            src/GitSpace.BrowserGit/dist
-            src/GitSpace.BrowserGit/package-lock.json
+          name: browser-git-worker
+          path: src/GitSpace.BrowserGit/dist
   desktop:
     strategy:
       fail-fast: false

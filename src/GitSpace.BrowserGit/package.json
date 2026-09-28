@@ -5,9 +5,9 @@
   "type": "module",
   "license": "MIT",
   "exports": { ".": "./backend.mjs", "./worker": "./dist/worker.js" },
-  "files": ["backend.mjs", "worker.mjs", "dist", "README.md"],
+  "files": ["backend.mjs", "worker.mjs", "buffer-shim.mjs", "dist", "README.md"],
   "scripts": {
-    "build": "esbuild worker.mjs --bundle --format=esm --platform=browser --target=es2022 --outfile=dist/worker.js",
+    "build": "esbuild worker.mjs --bundle --format=esm --platform=browser --target=es2022 --inject:./buffer-shim.mjs --outfile=dist/worker.js",
     "test": "node --test ../../tests/browser/backend.test.mjs"
   },
   "dependencies": {

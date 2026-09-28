@@ -9,10 +9,20 @@
     <IsPackable>false</IsPackable><IsUiAutomationMappingEnabled>true</IsUiAutomationMappingEnabled>
     <WasmShellMonoRuntimeExecutionMode>Interpreter</WasmShellMonoRuntimeExecutionMode><WasmShellEnableThreading>false</WasmShellEnableThreading>
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <GitSpaceFontDirectory>$(MSBuildProjectDirectory)/obj/fonts/$(TargetFramework)</GitSpaceFontDirectory>
   </PropertyGroup>
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-browserwasm'"><DefineConstants>$(DefineConstants);__WASM__</DefineConstants></PropertyGroup>
   <ItemGroup><ProjectReference Include="../GitSpace.Workbench.Uno/GitSpace.Workbench.Uno.csproj" /></ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-desktop'"><ProjectReference Include="../GitSpace.Git/GitSpace.Git.csproj" /></ItemGroup>
   <ItemGroup><TrimmerRootAssembly Include="GitSpace.App;GitSpace.Core;GitSpace.Diff;GitSpace.Rendering.Skia;GitSpace.Controls.Uno;GitSpace.Hosting.GitHub;GitSpace.Workbench.Uno" /></ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-browserwasm'"><Content Include="../GitSpace.BrowserGit/dist/worker.js" Link="wwwroot/git/worker.js" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="$(GitSpaceFontDirectory)/SourceCodePro-Regular.ttf" LogicalName="GitSpace.SourceCodePro.Regular" />
+    <EmbeddedResource Include="Fonts/LICENSE-SourceCodePro.txt" LogicalName="GitSpace.SourceCodePro.License" />
+    <None Update="Fonts/LICENSE-SourceCodePro.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="AcquirePinnedGitSpaceTypeface" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true' and !Exists('$(GitSpaceFontDirectory)/SourceCodePro-Regular.ttf')">
+    <MakeDir Directories="$(GitSpaceFontDirectory)" />
+    <DownloadFile SourceUrl="https://raw.githubusercontent.com/adobe-fonts/source-code-pro/803b7e23ec97ae58b6232ea76519a76d428ba268/TTF/SourceCodePro-Regular.ttf" DestinationFolder="$(GitSpaceFontDirectory)" DestinationFileName="SourceCodePro-Regular.ttf" />
+  </Target>
 </Project>
