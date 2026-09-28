@@ -83,9 +83,12 @@ public sealed partial class DesktopGitBackend
         for (var i = 0; i + 2 < output.Length; i += 3) attributes[output[i + 1]] = output[i + 2];
         bool Active(string name) => attributes.GetValueOrDefault(name, "unspecified") is not ("unspecified" or "unset");
         if (Active("filter") || Active("working-tree-encoding")) throw new InvalidOperationException("Custom Git filters/working-tree encodings require whole-file staging. Partial staging is disabled to avoid lossy conversion.");
-        if (attributes.GetValueOrDefault("text") == "unset") return text;
-        var autocrlf = await Optional(ct, "config", "--get", "core.autocrlf").ConfigureAwait(false);
-        return Active("text") || Active("eol") || autocrlf is "true" or "input" ? GitText.ToLf(text) : text;
+        // Ask the installed Git to apply its real clean/EOL rules. In particular,
+        // text=auto, lone CRs, mixed endings and an existing CRLF index entry do
+        // not behave like a blanket Replace. Only an unreachable blob is written;
+        // neither the index nor the working file is modified by this preview.
+        var id = (await _git.RunAsync(_root, ["hash-object", "-w", "--stdin", "--path=" + path], ct, text).ConfigureAwait(false)).Output.Trim();
+        return await ObjectText(id, ct).ConfigureAwait(false);
     }
     private async Task<GitResult> Review(GitRequest r, CancellationToken ct)
     {

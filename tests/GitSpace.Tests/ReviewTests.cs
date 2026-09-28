@@ -120,6 +120,27 @@ internal static class ReviewTests
                 await Run(new("history") { Limit = 1 }); Equal(1, state.Commits.Length); Equal(true, state.HasMoreHistory);
                 await Run(new("history") { Limit = 200 }); Equal(2, state.Commits.Length); Equal(false, state.HasMoreHistory);
             });
+            await test("native partial preview follows Git EOL conversion for lone CR and mixed endings", async () =>
+            {
+                var path = "eol-review.txt";
+                await process.RunAsync(root, ["config", "core.autocrlf", "input"]);
+                try
+                {
+                    foreach (var value in new[] { "one\rtwo\r", "one\r\ntwo\r\n", "one\rtwo\r\n" })
+                    {
+                        await Run(new("write") { Path = path, Message = value });
+                        var review = await Run(new("review") { Path = path });
+                        var native = (await process.RunAsync(root, ["hash-object", "-w", "--stdin", "--path=" + path], input: value)).Output.Trim();
+                        var expected = (await process.RunAsync(root, ["cat-file", "blob", native])).Output;
+                        Equal(expected, review.After);
+                        await Run(new("stageText") { Path = path, BeforeHash = review.BeforeHash, AfterHash = review.AfterHash, Message = review.After });
+                        Equal(expected, (await Run(new("review") { Path = path, Value = "staged" })).After);
+                        Equal(value, (await Run(new("read") { Path = path })).Text);
+                        await Run(new("unstage") { Paths = [path] });
+                    }
+                }
+                finally { await process.RunAsync(root, ["config", "core.autocrlf", "false"]); File.Delete(Path.Combine(root, path)); }
+            });
             await test("native conflict review and confirmed resolution complete a merge", async () =>
             {
                 await Run(new("commit") { Paths = ["a.txt", "other.txt"], Message = "Prepare merge" });

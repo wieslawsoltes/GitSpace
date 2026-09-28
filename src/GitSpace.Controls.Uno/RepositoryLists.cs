@@ -63,7 +63,10 @@ public sealed class ChangedFilesView : Grid
         _list.ItemContainerStyle = RowStyle(30);
         Grid.SetRow(_list, 2); Children.Add(_list); AutomationProperties.SetName(_list, "Changed files");
         _filter.TextChanged += (_, _) => ReconcileVisible();
-        _all.Checked += (_, _) => ToggleAll(true); _all.Unchecked += (_, _) => ToggleAll(false);
+        // Checked/Unchecked also fire for programmatic mixed-state synchronization.
+        // Only a user/automation Click is a bulk-selection command; derive its
+        // intent from the model rather than the control's intermediate state.
+        _all.Click += (_, _) => ToggleAll(!_rows.Values.All(row => row.Included));
         _list.SelectionChanged += (_, _) => { if (!_updating && _list.SelectedItem is ChangeRow row) { _active = row.Path; FileSelected?.Invoke(this, row.Path); } };
         _list.LayoutUpdated += (_, _) => { if (_selectionPending) SelectRealizedActiveRow(); };
     }
