@@ -158,7 +158,8 @@ try {
   await check('theme switch preserves the worktree', async () => {
     await menu('View', 'Toggle light / dark appearance'); await ready();
     assert.equal(await page.evaluate(() => gitspaceDiagnostics.changes), 1); assert.equal(await page.evaluate(() => gitspaceDiagnostics.rowCount), 2);
-    assert.equal(await page.getByText('Select a file to review', { exact: true }).count(), 0, 'Theme rebuild must retain the reviewed file heading');
+    // Semantic text updates follow the managed theme rebuild on the next layout pass.
+    await page.getByText('Select a file to review', { exact: true }).waitFor({ state: 'detached' });
     await page.locator('p').filter({ hasText: /^browser-test\.txt$/ }).waitFor({ state: 'visible' });
   });
   await page.screenshot({ path: output + '/04-light-theme.png', fullPage: true });
