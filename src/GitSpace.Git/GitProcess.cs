@@ -23,8 +23,14 @@ public sealed class GitProcess : IDisposable
             RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8, StandardInputEncoding = new UTF8Encoding(false)
         };
-        foreach (var arg in new[] { "--no-pager", "--literal-pathspecs", "-c", "color.ui=false", "-c", "core.quotepath=false", "-c", "core.hooksPath=" + _hooks }) info.ArgumentList.Add(arg);
-        foreach (var arg in arguments) info.ArgumentList.Add(arg);
+        var argv = arguments.ToArray();
+        // Do not set literal path mode for compound commands such as stash: Git's own
+        // internal pathspecs include magic prefixes, and globally disabling those leaves
+        // untracked files behind. Only explicitly supplied file lists need literal mode.
+        info.ArgumentList.Add("--no-pager");
+        if (argv.Contains("--") || argv.Contains("--pathspec-file-nul")) info.ArgumentList.Add("--literal-pathspecs");
+        foreach (var arg in new[] { "-c", "color.ui=false", "-c", "core.quotepath=false", "-c", "core.hooksPath=" + _hooks }) info.ArgumentList.Add(arg);
+        foreach (var arg in argv) info.ArgumentList.Add(arg);
         info.Environment["GIT_TERMINAL_PROMPT"] = "0";
         info.Environment["GIT_EDITOR"] = "true";
         info.Environment["GIT_SEQUENCE_EDITOR"] = "true";

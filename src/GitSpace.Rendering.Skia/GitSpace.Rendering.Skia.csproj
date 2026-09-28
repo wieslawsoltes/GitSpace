@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Description>Viewport-virtualized, reusable Skia unified and split Git diff renderer.</Description></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../GitSpace.Diff/GitSpace.Diff.csproj" /><PackageReference Include="SkiaSharp" Version="3.119.2" /></ItemGroup>
+</Project>

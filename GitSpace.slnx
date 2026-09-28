@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/Libraries/">
+    <Project Path="src/GitSpace.Core/GitSpace.Core.csproj" />
+    <Project Path="src/GitSpace.Diff/GitSpace.Diff.csproj" />
+    <Project Path="src/GitSpace.Git/GitSpace.Git.csproj" />
+    <Project Path="src/GitSpace.Hosting.GitHub/GitSpace.Hosting.GitHub.csproj" />
+    <Project Path="src/GitSpace.Rendering.Skia/GitSpace.Rendering.Skia.csproj" />
+    <Project Path="src/GitSpace.Controls.Uno/GitSpace.Controls.Uno.csproj" />
+    <Project Path="src/GitSpace.Workbench.Uno/GitSpace.Workbench.Uno.csproj" />
+  </Folder>
+  <Project Path="src/GitSpace.App/GitSpace.App.csproj" />
+  <Project Path="tests/GitSpace.Tests/GitSpace.Tests.csproj" />
+</Solution>

@@ -12,10 +12,47 @@ concurrency:
 jobs:
   portable:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - run: dotnet run --project tests/GitSpace.Tests -c Release
+      - name: Portable and real system Git regression tests
+        run: dotnet run --project tests/GitSpace.Tests -c Release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Browser Git dependency install
+        run: npm install --prefix src/GitSpace.BrowserGit --no-audit --no-fund
+      - name: Real browser-backend Git contract tests
+        run: npm test --prefix src/GitSpace.BrowserGit
+      - name: Bundle isolated browser worker
+        run: npm run build --prefix src/GitSpace.BrowserGit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-git-worker-and-lockfile
+          path: |
+            src/GitSpace.BrowserGit/dist
+            src/GitSpace.BrowserGit/package-lock.json
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-gitspace-nuget-${{ hashFiles('global.json', '**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-gitspace-nuget-
+      - name: Build actual Uno desktop application
+        run: dotnet build src/GitSpace.App -f net10.0-desktop -c Release -p:GitSpaceTargetFrameworks=net10.0-desktop
+      - name: System Git regression tests
+        run: dotnet run --project tests/GitSpace.Tests -c Release

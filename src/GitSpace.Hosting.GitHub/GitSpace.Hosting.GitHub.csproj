@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><Description>Independently reusable GitHub pull-request HTTP client with session-scoped credentials and bounded responses.</Description></PropertyGroup></Project>

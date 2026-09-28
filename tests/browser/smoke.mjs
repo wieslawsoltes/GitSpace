@@ -1,0 +1,72 @@
+import { chromium } from 'playwright';
+import { mkdir, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+
+const output = 'artifacts/browser-tests'; await mkdir(output, { recursive: true });
+const browser = await chromium.launch({ headless: true, args: ['--enable-unsafe-swiftshader', '--disable-dev-shm-usage'] });
+const page = await browser.newPage({ viewport: { width: 1360, height: 860 }, acceptDownloads: true });
+const messages = [], errors = []; let passed = 0;
+page.on('console', message => { messages.push(message.type() + ': ' + message.text()); if (message.text().includes('[GitSpace]')) console.log(message.text()); });
+page.on('pageerror', error => errors.push(error.stack || String(error)));
+async function check(name, action) { console.log('START ' + name); await action(); passed++; console.log('PASS ' + name); }
+async function accessibility() { const enable = page.locator('#uno-enable-accessibility'); if (await enable.count()) await enable.dispatchEvent('click'); await page.waitForTimeout(500); }
+async function click(name, role = 'button') {
+  const item = page.getByRole(role, { name, exact: true }).first(); await item.waitFor({ state: 'attached', timeout: 10000 });
+  const bounds = await item.boundingBox(); assert.ok(bounds && bounds.width > 0 && bounds.height > 0, 'Rendered control bounds: ' + name);
+  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+}
+async function menu(title, item) { await click(title); await click(item, 'menuitem'); }
+async function ready() { await page.waitForFunction(() => globalThis.gitspaceDiagnostics?.ready && !gitspaceDiagnostics.busy, null, { timeout: 90000 }); }
+try {
+  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:4173/GitSpace/', { waitUntil: 'domcontentloaded' });
+  await ready(); await accessibility();
+  await check('real Uno canvas, Git worker and tutorial repository', async () => {
+    assert.ok(await page.locator('canvas').count() > 0);
+    const state = await page.evaluate(() => gitspaceDiagnostics);
+    assert.equal(state.repository, 'Tutorial'); assert.equal(state.changes, 4); assert.equal(state.commits, 4); assert.match(state.head, /^[a-f0-9]{40}$/);
+    await page.waitForFunction(() => gitspaceDiagnostics.frames > 0);
+  });
+  await page.screenshot({ path: output + '/01-changes-dark.png', fullPage: true });
+  await check('History tab shows real commit changes', async () => { await click('History'); await page.waitForFunction(() => gitspaceDiagnostics.history); });
+  await page.screenshot({ path: output + '/02-history.png', fullPage: true });
+  await check('Changes tab and split diff are interactive', async () => {
+    await click('Changes'); await page.waitForFunction(() => !gitspaceDiagnostics.history);
+    await click('Toggle split diff'); await page.waitForFunction(() => gitspaceDiagnostics.split);
+  });
+  await page.screenshot({ path: output + '/03-split-diff.png', fullPage: true });
+  await check('commit composer makes a real selected-file commit', async () => {
+    const previous = await page.evaluate(() => gitspaceDiagnostics.head);
+    await page.getByRole('textbox', { name: 'Commit summary', exact: true }).fill('Improve repository refresh workflow');
+    await page.getByRole('textbox', { name: 'Commit description', exact: true }).fill('Created through the actual Uno commit controls in Chromium.');
+    await click('Commit to main'); await page.waitForFunction(id => gitspaceDiagnostics.head !== id && !gitspaceDiagnostics.busy, previous);
+    assert.equal(await page.evaluate(() => gitspaceDiagnostics.changes), 0); assert.equal(await page.evaluate(() => gitspaceDiagnostics.commits), 5);
+  });
+  await check('create a branch through the branch dialog', async () => {
+    await menu('Branch', 'New branch…');
+    await page.getByRole('textbox', { name: 'Branch name', exact: true }).fill('feature/browser-test');
+    await click('Create branch'); await page.waitForFunction(() => gitspaceDiagnostics.branch === 'feature/browser-test' && !gitspaceDiagnostics.busy);
+  });
+  await check('new file and text editor write a real working file', async () => {
+    await click('Create a new file'); await page.getByRole('textbox', { name: 'Repository-relative path', exact: true }).fill('browser-test.txt'); await click('Create file');
+    await page.getByRole('textbox', { name: 'File editor', exact: true }).fill('Created in the browser\nUnicode: zażółć\n'); await click('Save file');
+    await page.waitForFunction(() => gitspaceDiagnostics.changes === 1 && gitspaceDiagnostics.activePath === 'browser-test.txt' && !gitspaceDiagnostics.busy);
+  });
+  await check('theme switch preserves the worktree', async () => {
+    await menu('View', 'Toggle light / dark appearance'); await ready(); assert.equal(await page.evaluate(() => gitspaceDiagnostics.changes), 1);
+  });
+  await page.screenshot({ path: output + '/04-light-theme.png', fullPage: true });
+  await check('reload preserves branch, history and uncommitted work', async () => {
+    const head = await page.evaluate(() => gitspaceDiagnostics.head); await page.waitForTimeout(1000);
+    await page.reload({ waitUntil: 'domcontentloaded' }); await ready(); await accessibility();
+    const state = await page.evaluate(() => gitspaceDiagnostics); assert.equal(state.head, head); assert.equal(state.branch, 'feature/browser-test'); assert.equal(state.changes, 1);
+  });
+  await check('no unhandled browser exceptions', async () => { assert.deepEqual(errors, []); });
+  console.log(`RESULT: ${passed} real Chromium workflows passed.`);
+} finally {
+  await page.screenshot({ path: output + '/last-state.png', fullPage: true }).catch(() => {});
+  await writeFile(output + '/console.log', messages.join('\n')); await writeFile(output + '/errors.json', JSON.stringify(errors, null, 2));
+  await writeFile(output + '/report.json', JSON.stringify({ passed, errors }, null, 2));
+  await writeFile(output + '/dom.html', await page.content());
+  await writeFile(output + '/state.json', JSON.stringify(await page.evaluate(() => globalThis.gitspaceDiagnostics || null), null, 2));
+  await browser.close();
+}

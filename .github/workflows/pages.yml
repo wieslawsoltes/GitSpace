@@ -1,0 +1,126 @@
+name: Browser and Pages
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-gitspace-browser-${{ hashFiles('global.json', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-gitspace-browser-
+            ${{ runner.os }}-gitspace-nuget-
+      - name: Install and test real browser Git backend
+        run: |
+          npm install --prefix src/GitSpace.BrowserGit --no-audit --no-fund
+          npm test --prefix src/GitSpace.BrowserGit
+          npm run build --prefix src/GitSpace.BrowserGit
+      - name: Install WebAssembly build tools
+        run: dotnet workload install wasm-tools --skip-manifest-update
+      - name: Publish actual Uno browser application
+        run: dotnet publish src/GitSpace.App -f net10.0-browserwasm -c Release -p:GitSpaceTargetFrameworks=net10.0-browserwasm -p:WasmShellWebAppBasePath=/GitSpace/ -o artifacts/browser
+      - name: Stage static site
+        run: python3 tools/prepare-pages.py artifacts/browser artifacts/site
+      - name: Native and portable regression gate
+        run: dotnet run --project tests/GitSpace.Tests -c Release
+      - name: Install Chromium test tools
+        run: npm install --no-save playwright@1.55.1 && npx playwright install --with-deps chromium
+      - name: Real Chromium UI interaction tests
+        env:
+          BASE_URL: http://127.0.0.1:4173/GitSpace/
+        run: |
+          mkdir -p artifacts/serve
+          ln -s "$PWD/artifacts/site" artifacts/serve/GitSpace
+          python3 -m http.server 4173 --directory artifacts/serve > artifacts/server.log 2>&1 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          node tests/browser/smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-interaction-results
+          path: |
+            artifacts/browser-tests
+            artifacts/server.log
+      - name: Pack reusable libraries
+        run: |
+          for project in Core Diff Git Hosting.GitHub Rendering.Skia Controls.Uno Workbench.Uno; do
+            dotnet pack "src/GitSpace.$project/GitSpace.$project.csproj" -c Release -o artifacts/packages
+          done
+          npm pack ./src/GitSpace.BrowserGit --pack-destination artifacts/packages
+          git archive --format=zip -o artifacts/GitSpace-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reusable-packages
+          path: artifacts/packages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gitspace-browser
+          path: artifacts/site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-distribution
+          path: artifacts/GitSpace-source.zip
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: artifacts/site
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: browser
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Deploy actual Uno app
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Verify deployed commit
+        env:
+          PAGES_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          base = os.environ['PAGES_URL'].rstrip('/') + '/'
+          expected = os.environ['GITHUB_SHA']
+          for attempt in range(12):
+              try:
+                  with urllib.request.urlopen(base + 'build-info.json?commit=' + expected, timeout=30) as response:
+                      actual = json.load(response)
+                  if actual.get('commit') != expected:
+                      raise RuntimeError('Public site does not yet match the deployed commit')
+                  with urllib.request.urlopen(base + 'git/worker.js?commit=' + expected, timeout=30) as response:
+                      if response.status != 200 or len(response.read()) < 1000:
+                          raise RuntimeError('The Git worker is missing from the deployment')
+                  print('Verified public Uno application and Git worker at commit ' + expected)
+                  break
+              except Exception as error:
+                  if attempt == 11:
+                      raise
+                  print(str(error), flush=True)
+                  time.sleep(5)
+          PY

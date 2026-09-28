@@ -1,0 +1,10 @@
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-browserwasm;net10.0-desktop</TargetFrameworks>
+    <TargetFrameworks Condition="'$(GitSpaceTargetFrameworks)' != ''">$(GitSpaceTargetFrameworks)</TargetFrameworks>
+    <UnoSingleProject>true</UnoSingleProject><UnoFeatures>SkiaRenderer</UnoFeatures>
+    <OutputType>Library</OutputType><IsPackable>true</IsPackable><GenerateLibraryLayout>true</GenerateLibraryLayout>
+    <Description>Custom compact Uno Git client controls: repository toolbar, change list, history, commit composer, diff viewport and resizable panels.</Description>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../GitSpace.Core/GitSpace.Core.csproj" /><ProjectReference Include="../GitSpace.Rendering.Skia/GitSpace.Rendering.Skia.csproj" /></ItemGroup>
+</Project>
