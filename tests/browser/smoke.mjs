@@ -161,8 +161,8 @@ try {
     // Uno updates a TextBlock's accessible name through aria-label while the
     // semantic paragraph's initial text node can remain unchanged.
     await page.waitForFunction(() => {
-      const label = document.querySelector('[xamlautomationid="ReviewedFilePath"]');
-      return (label?.getAttribute('aria-label') || label?.textContent) === 'browser-test.txt';
+      const labels = Array.from(document.querySelectorAll('p')).filter(label => label.textContent === 'Select a file to review');
+      return labels.length === 1 && labels[0].getAttribute('aria-label') === 'browser-test.txt';
     });
   });
   await page.screenshot({ path: output + '/04-light-theme.png', fullPage: true });
