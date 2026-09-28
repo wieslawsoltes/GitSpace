@@ -1,0 +1,36 @@
+name: Browser dependency qualification
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/dependency-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve permissive Git implementation
+        run: npm install --prefix src/GitSpace.BrowserGit --save-exact isomorphic-git@1.33.1 --no-audit --no-fund
+      - name: Bundle and inspect production worker
+        run: |
+          npm run build --prefix src/GitSpace.BrowserGit
+          if grep -E 'SPDX-License-Identifier:.*(LGPL|AGPL|GPL)' src/GitSpace.BrowserGit/dist/worker.js; then
+            echo 'Copyleft source marker found in browser worker' >&2
+            exit 1
+          fi
+      - name: Existing real repository contract tests
+        run: npm test --prefix src/GitSpace.BrowserGit
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qualified-browser-dependencies
+          path: |
+            src/GitSpace.BrowserGit/package.json
+            src/GitSpace.BrowserGit/package-lock.json
+            src/GitSpace.BrowserGit/dist/worker.js
