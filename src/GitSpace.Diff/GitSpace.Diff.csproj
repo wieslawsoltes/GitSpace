@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><Description>Bounded Myers line diff, split alignment, intraline spans and viewport calculations.</Description></PropertyGroup></Project>
