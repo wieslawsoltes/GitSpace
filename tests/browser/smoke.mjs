@@ -15,7 +15,23 @@ async function click(name, role = 'button') {
   const bounds = await item.boundingBox(); assert.ok(bounds && bounds.width > 0 && bounds.height > 0, 'Rendered control bounds: ' + name);
   await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
 }
-async function input(name, value) { await page.getByRole('textbox', { name, exact: true }).fill(value); }
+async function activateDialog(name) {
+  // Uno's semantic button click is connected to the actual managed button's
+  // IInvokeProvider. Use that accessibility action for popup controls whose
+  // flattened semantic bounds are local. This does not invoke app commands,
+  // change diagnostic state, or call the Git worker directly.
+  const button = page.getByRole('button', { name, exact: true });
+  await button.waitFor({ state: 'attached' });
+  assert.equal(await button.isDisabled(), false, 'Dialog action is enabled');
+  await button.dispatchEvent('click');
+}
+async function input(name, value) {
+  const field = page.getByRole('textbox', { name, exact: true });
+  await field.fill(value);
+  assert.equal(await field.inputValue(), value);
+  // Allow managed TextBox updates and the popup's initial-focus dispatch to settle.
+  await page.waitForTimeout(100);
+}
 async function menu(title, item) { await click(title); await click(item, 'menuitem'); }
 async function ready() { await page.waitForFunction(() => globalThis.gitspaceDiagnostics?.ready && !gitspaceDiagnostics.busy, null, { timeout: 90000 }); }
 try {
@@ -44,15 +60,14 @@ try {
   });
   await check('create a branch through the branch dialog', async () => {
     await menu('Branch', 'New branch…'); await input('Branch name', 'feature/browser-test');
-    // Exercise ContentDialog's actual primary keyboard action. Its flattened
-    // accessibility overlay currently reports dialog button coordinates locally.
-    await page.keyboard.press('Enter');
+    await page.screenshot({ path: output + '/branch-before-create.png', fullPage: true });
+    await activateDialog('Create branch');
     await page.waitForFunction(() => gitspaceDiagnostics.branch === 'feature/browser-test' && !gitspaceDiagnostics.busy);
   });
   await check('new file and text editor write a real working file', async () => {
-    await menu('File', 'New file…'); await input('Repository-relative path', 'browser-test.txt'); await page.keyboard.press('Enter');
+    await menu('File', 'New file…'); await input('Repository-relative path', 'browser-test.txt'); await activateDialog('Create file');
     await input('File editor', 'Created in the browser\nUnicode: zażółć\n');
-    await page.keyboard.press('Tab'); await page.keyboard.press('Enter');
+    await activateDialog('Save file');
     await page.waitForFunction(() => gitspaceDiagnostics.changes === 1 && gitspaceDiagnostics.activePath === 'browser-test.txt' && !gitspaceDiagnostics.busy);
   });
   await check('theme switch preserves the worktree', async () => {
@@ -61,7 +76,7 @@ try {
   await page.screenshot({ path: output + '/04-light-theme.png', fullPage: true });
   await check('reload preserves branch, history and uncommitted work', async () => {
     const head = await page.evaluate(() => gitspaceDiagnostics.head); await page.waitForTimeout(1000);
-       await page.reload({ waitUntil: 'domcontentloaded' }); await ready(); await accessibility();
+    await page.reload({ waitUntil: 'domcontentloaded' }); await ready(); await accessibility();
     const state = await page.evaluate(() => gitspaceDiagnostics); assert.equal(state.head, head); assert.equal(state.branch, 'feature/browser-test'); assert.equal(state.changes, 1);
   });
   await check('no unhandled browser exceptions', async () => { assert.deepEqual(errors, []); });
