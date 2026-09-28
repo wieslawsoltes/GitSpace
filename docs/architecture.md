@@ -54,9 +54,9 @@ No separate render loop competes with Uno. `SKCanvasElement.Invalidate()` schedu
 
 ## Performance boundaries
 
-Text preview/editing is limited to 2 MiB per side. Git output is bounded to 16 MiB per stream. Individual rendered lines are clipped after 12,000 characters. History currently loads 200 commits rather than offering unbounded pagination. ZIP export caps input at 64 MiB. The exact diff trace budget is approximately 32 MiB; algorithm input, output, string and row allocations are additional.
+Text preview/editing is limited to 2 MiB per side. Git output is bounded to 16 MiB per stream. Individual rendered lines are clipped after 12,000 characters. History loads 200-commit pages up to a 2,000-commit bound. ZIP export caps input at 64 MiB. The exact diff trace budget is approximately 32 MiB; algorithm input, output, string and row allocations are additional.
 
-The current file/history list implementation uses ListView scrolling/container virtualization but constructs row contents from the snapshot. Full data-driven recycling for very large status sets, background incremental diffing, repository filesystem watchers, patch/hunk streaming, font shaping/fallback qualification and large-monorepo benchmarks remain work. These boundaries are intentional disclosures, not claims of already completed scaling.
+The file/history lists now use data-only row models and realized ListView templates; unchanged status refreshes do not reset ItemsSource. Further large-status qualification, background incremental diffing, repository filesystem watchers, patch/hunk streaming, font shaping/fallback qualification and large-monorepo benchmarks remain work. These boundaries are intentional disclosures, not claims of already completed scaling.
 
 ## Embedding
 
@@ -73,3 +73,11 @@ await view.InitializeAsync();
 Individual controls communicate through events and explicit state updates. `CommitComposer` raises `CommitRequested`; `ChangedFilesView` exposes selected paths and selection events; `HistoryView` raises `CommitSelected`; `DiffViewer` accepts a computed diff document. They do not access repositories or network services themselves.
 
 The portable GitHub HTTP client accepts an injected `HttpClient`, applies authorization per request rather than through global default headers, caps responses, and uses a fixed GitHub API origin. Enterprise-server support and OAuth flows are not part of this preview.
+
+## Partial index updates
+
+`LineSelection` computes an exact edit script over line tokens that retain their terminators. Selecting edits reconstructs only the desired index version. EOF selections that would concatenate previously separate lines are refused. Review hashes cover existence, mode and exact source content. Desktop partial updates acquire the standard Git index lock, validate sources, write a temporary index and atomically replace the index. Browser requests remain serialized by the worker and origin Web Lock. Working files are never temporarily overwritten to stage partial content.
+
+Desktop review supports core.autocrlf/text/eol normalization for text, and refuses custom clean filters or working-tree encodings rather than silently stage an incorrectly converted file. Native UTF-8 pipe decoding preserves BOMs and rejects invalid text. History caching includes HEAD/root/limit and shallow boundaries (plus replacement refs on desktop). Status and index checks still run, so external changes are not hidden by the immutable-history cache.
+
+`ConflictDocument` is independent of UI and Git. `ConflictResolver` consumes the three-way backend snapshot and edits a result. Mark resolved verifies the index conflict records and working content again, then writes/stages only that path; Continue finishes the active native Git operation. Binary and symlink conflicts require external tools.

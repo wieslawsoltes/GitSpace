@@ -172,6 +172,7 @@ await Test("native push and fetch with a temporary bare remote", async () =>
     }
     finally { try { Directory.Delete(bare, true); } catch { } }
 });
+await ReviewTests.Run(Test);
 Console.WriteLine($"RESULT: {passed} passed, {failed} failed; 1000 randomized differential trials included.");
 Environment.ExitCode = failed == 0 ? 0 : 1;
 try { Directory.Delete(root, true); } catch { }

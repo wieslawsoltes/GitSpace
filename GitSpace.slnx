@@ -10,4 +10,5 @@
   </Folder>
   <Project Path="src/GitSpace.App/GitSpace.App.csproj" />
   <Project Path="tests/GitSpace.Tests/GitSpace.Tests.csproj" />
+  <Project Path="tests/GitSpace.Rendering.Tests/GitSpace.Rendering.Tests.csproj" />
 </Solution>

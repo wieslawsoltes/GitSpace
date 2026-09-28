@@ -14,7 +14,7 @@ GitSpace 0.1.0 is a functioning preview, not a complete or pixel-exact GitHub De
 | File stage/unstage | Yes | Yes |
 | Selected-file commits | Preserve unrelated staged files using native Git | Refuse unrelated staged content before committing selection |
 | Amend latest commit | Yes, confirmed | Yes, confirmed |
-| Partial-line/hunk staging | Not implemented | Not implemented |
+| Partial-line/hunk staging | Guarded UTF-8 index editing, line/hunk selection and staged-only commit; custom filters/working-tree encodings require whole-file staging | Guarded UTF-8 index editing and the same selection UI |
 | Unified/split text review | Yes | Yes |
 | Intraline split highlights | Common-prefix/suffix span | Same renderer |
 | Binary/image diff | Explicit unsupported preview | Explicit unsupported preview |
@@ -24,10 +24,10 @@ GitSpace 0.1.0 is a functioning preview, not a complete or pixel-exact GitHub De
 | Ahead/behind | Native upstream counts | Not implemented; omitted from toolbar labels |
 | Merge | Native Git; conflicts remain unresolved for review | Fast-forward-only |
 | Rebase, revert, cherry-pick | Native commands, confirmation, continue/abort | Not implemented |
-| Graphical conflict resolver | Not implemented; edit markers and stage manually | Not implemented |
+| Graphical conflict resolver | Current/incoming/result editor, merge/diff3 marker choices, delete/modify choice, stale-content guards and explicit Mark resolved | Not implemented; merge remains fast-forward-only |
 | Interactive rebase/squash/reorder | Not implemented | Not implemented |
 | Stash | Includes tracked and untracked files; apply retains backup | Tracked/loose-object subset, clean worktree required for apply |
-| History | Latest 200 commits; per-commit file comparison | Latest 200 commits; per-commit file comparison |
+| History | Load history in 200-commit pages up to 2,000; first-parent commit file comparison | Load history in 200-commit pages up to 2,000; first-parent commit file comparison |
 | Pull requests | GitHub REST list/create/open | Same REST client |
 | OAuth/account switching | Not implemented; Git helper/session REST token | Not implemented; session token |
 | GitHub Enterprise | Not implemented in hosting UI | Not implemented |
@@ -35,7 +35,7 @@ GitSpace 0.1.0 is a functioning preview, not a complete or pixel-exact GitHub De
 | Hooks | Disabled for GitSpace commands | No native hook execution |
 | Native filesystem/editor/shell integration | Path-based open and text editor; richer integration pending | No direct local-folder mounting |
 | ZIP backup | Repository already exists as normal folder | Real .git + worktree, 64 MiB input cap, symlinks rejected |
-| Preferences | Local JSON, no tokens | LocalStorage, no tokens |
+| Preferences | Local JSON, recent repositories, no tokens | LocalStorage, recent repositories, no tokens |
 | Accessibility | Accessible control names and keyboard navigation; incomplete diff text peer | Same; browser mapping must be enabled where requested by Uno |
 | Localization | English | English |
 | Installer/signing/updater | Not implemented; build/release archives | Static GitHub Pages deployment |
@@ -55,3 +55,11 @@ These checks do not make arbitrary repositories safe. Native Git can invoke conf
 ## Qualification
 
 The workflows contain portable algorithm/safety tests, real system-Git integration tests, browser-backend tests over real Git files, desktop compilation and real Chromium interactions against the compiled Uno app. Consult the exact workflow run and commit for the current results. Physical-GPU tests, manual Windows/macOS/Linux interaction qualification, external GitHub authentication/push tests, broad Unicode/font-shaping qualification, accessibility audits and large-monorepo performance qualification are not represented by these gates.
+
+## Review/performance follow-up
+
+Unstaged and Staged review modes provide exact line-ending-aware selection. Click a changed row, Shift-click a range or Ctrl-click to toggle rows; use Stage/Unstage selection or hunk. The composer switches to staged-only commits after a partial edit, so excluded working changes cannot accidentally be restaged. Partial selection currently uses unified view; split view remains available for full review. Coarse diffs require whole-file staging. Mode-only changes are handled through whole-file staging.
+
+The editor preserves unchanged mixed newline conventions and BOMs, retains the original newline convention for edits, and uses LF for new files. Repository refresh on focus preserves unchanged list containers, scroll position and diff selections. File/history visuals are realized through data templates instead of preallocating a visual tree per file.
+
+This still is not all upstream compatibility. OAuth/account management, interactive history editing, LFS/submodule/worktree interfaces, browser non-fast-forward integration, advanced accessible diff peers, localization, native installers/updaters and exhaustive visual/GPU qualification remain separate work.

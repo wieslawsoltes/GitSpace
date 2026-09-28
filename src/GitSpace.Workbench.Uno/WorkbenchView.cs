@@ -60,7 +60,8 @@ public sealed partial class WorkbenchView : Grid, IAsyncDisposable
     private void Build()
     {
         var summary = _composer?.Summary.Text ?? ""; var description = _composer?.Description.Text ?? "";
-        _diff?.Dispose(); Children.Clear(); RowDefinitions.Clear(); KeyboardAccelerators.Clear();
+        var selected = _changes?.SelectedPaths; var filter = _changes?.Filter ?? ""; var stagedOnly = _composer?.StagedOnly ?? false;
+        _renderedKey = null; _diff?.Dispose(); Children.Clear(); RowDefinitions.Clear(); KeyboardAccelerators.Clear();
         RequestedTheme = _preferences.Dark ? ElementTheme.Dark : ElementTheme.Light;
         Background = GitTheme.Brush(GitTheme.Current.Surface);
         RowDefinitions.Add(new() { Height = new GridLength(30) });
@@ -92,7 +93,7 @@ public sealed partial class WorkbenchView : Grid, IAsyncDisposable
         _history = new HistoryView { Visibility = Visibility.Collapsed }; Grid.SetRow(_history, 1); _sidebar.Children.Add(_history); _history.CommitSelected += (_, commit) => _ = Guard(() => SelectCommitAsync(commit));
         _composer = new CommitComposer(); _composer.Summary.Text = summary; _composer.Description.Text = description; _composer.CommitRequested += (_, _) => _ = Guard(CommitAsync); Grid.SetRow(_composer, 2); _sidebar.Children.Add(_composer); _body.Children.Add(_sidebar);
         var splitter = new PaneSplitter(sidebarColumn); Grid.SetColumn(splitter, 1); _body.Children.Add(splitter);
-        var content = new Grid(); content.RowDefinitions.Add(new() { Height = GridLength.Auto }); content.RowDefinitions.Add(new() { Height = new GridLength(40) }); content.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        var content = new Grid(); content.RowDefinitions.Add(new() { Height = GridLength.Auto }); content.RowDefinitions.Add(new() { Height = GridLength.Auto }); content.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         _commitHeader = new Grid { Padding = new Thickness(18, 12, 18, 12), Background = GitTheme.Brush(GitTheme.Current.Panel), Visibility = Visibility.Collapsed, RowSpacing = 8 };
         _commitHeader.RowDefinitions.Add(new() { Height = GridLength.Auto }); _commitHeader.RowDefinitions.Add(new() { Height = GridLength.Auto });
         _commitInfo = GitTheme.Label("", 13, bold: true); _commitInfo.TextWrapping = TextWrapping.Wrap; _commitInfo.MaxHeight = 90; _commitHeader.Children.Add(_commitInfo);
@@ -106,8 +107,9 @@ public sealed partial class WorkbenchView : Grid, IAsyncDisposable
         _editButton = new GitButton("Edit", () => _ = Guard(EditFileAsync), accessibleName: "Edit selected file"); Grid.SetColumn(_editButton, 2); fileToolbar.Children.Add(_editButton);
         _splitButton = new GitButton(_preferences.SplitDiff ? "Split" : "Unified", () => _ = Guard(ToggleSplitAsync), accessibleName: "Toggle split diff"); Grid.SetColumn(_splitButton, 3); fileToolbar.Children.Add(_splitButton);
         var diffOptions = new GitButton("⋯", accessibleName: "Diff options"); var diffMenu = new MenuFlyout(); AddMenuItem(diffMenu, "Ignore whitespace", () => _ = Guard(ToggleWhitespaceAsync)); AddMenuItem(diffMenu, "Find in diff…", () => _ = Guard(FindAsync)); AddMenuItem(diffMenu, "Copy entire diff", () => _diff.CopySelection(true)); AddMenuItem(diffMenu, "Increase text size", () => _diff.Zoom(1)); AddMenuItem(diffMenu, "Decrease text size", () => _diff.Zoom(-1)); diffOptions.Flyout = diffMenu; Grid.SetColumn(diffOptions, 4); fileToolbar.Children.Add(diffOptions);
+        InstallReviewToolbar(fileToolbar);
         Grid.SetRow(fileToolbar, 1); content.Children.Add(fileToolbar);
-        _diff = new DiffViewer(); _diff.ApplyTheme(); _diff.SetSplit(_preferences.SplitDiff); Grid.SetRow(_diff, 2); content.Children.Add(_diff);
+        _diff = new DiffViewer(); _diff.SelectionChanged += (_, _) => UpdateReviewCommands(); _diff.Rendered += (_, _) => StateChanged?.Invoke(this, EventArgs.Empty); _diff.ApplyTheme(); _diff.SetSplit(_preferences.SplitDiff); Grid.SetRow(_diff, 2); content.Children.Add(_diff);
         var emptyStack = new StackPanel { Spacing = 16, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 440, Padding = new Thickness(28) };
         var emptyIcon = GitTheme.Label("✓", 52, true); emptyIcon.HorizontalAlignment = HorizontalAlignment.Center; emptyStack.Children.Add(emptyIcon);
         var emptyTitle = GitTheme.Label("No local changes", 22, bold: true); emptyTitle.HorizontalAlignment = HorizontalAlignment.Center; emptyStack.Children.Add(emptyTitle);
@@ -127,7 +129,10 @@ public sealed partial class WorkbenchView : Grid, IAsyncDisposable
         Shortcut(VirtualKey.Enter, VirtualKeyModifiers.Control, () => _ = Guard(CommitAsync));
         Shortcut(VirtualKey.F5, VirtualKeyModifiers.None, () => _ = Guard(() => ExecuteAsync(new("refresh"))));
         Shortcut(VirtualKey.F, VirtualKeyModifiers.Control, () => _ = Guard(FindAsync));
-        UpdateSnapshot(Snapshot); ApplyTabState();
+        UpdateSnapshot(Snapshot);
+        if (selected is not null) _changes.RestoreSelection(selected); _changes.Filter = filter; _composer.StagedOnly = stagedOnly;
+        _history.LoadMoreRequested += (_, _) => _ = Guard(() => ExecuteAsync(new("history") { Limit = Math.Min(2000, Snapshot.HistoryLimit + 200) }));
+        ApplyTabState();
         if (_lastDiff is not null) ApplyDiff(_lastDiff);
     }
     private void Shortcut(VirtualKey key, VirtualKeyModifiers modifiers, Action action)
@@ -176,7 +181,7 @@ public sealed partial class WorkbenchView : Grid, IAsyncDisposable
         {
             var result = await _backend.ExecuteAsync(request, _lifetime.Token);
             if (result.Snapshot is not null) UpdateSnapshot(result.Snapshot);
-            _preferences = _preferences with { LastRepository = Snapshot.Root }; await _platform.SavePreferencesAsync(_preferences);
+            _preferences = _preferences with { LastRepository = Snapshot.Root, RecentRepositories = new[] { Snapshot.Root }.Concat(_preferences.RecentRepositories).Where(r => r.Length != 0).Distinct(StringComparer.Ordinal).Take(12).ToArray() }; await _platform.SavePreferencesAsync(_preferences);
             if (_showHistory && Snapshot.Commits.Length != 0) await SelectCommitAsync(_selectedCommit is { } selected && Snapshot.Commits.Any(c => c.Id == selected.Id) ? selected : Snapshot.Commits[0]);
             else if (_activePath.Length != 0) await SelectFileAsync(_activePath);
             else { _lastDiff = null; _diff.SetDocument(null); _stats.Text = ""; }
@@ -205,15 +210,16 @@ public sealed partial class WorkbenchView : Grid, IAsyncDisposable
         _repository.SetValue(snapshot.Name.Length == 0 ? "Open a repository" : snapshot.Name);
         _branch.SetValue(snapshot.Branch);
         _sync.SetValue(snapshot.Remotes.Length == 0 ? "Publish repository" : "Fetch origin", snapshot.Remotes.Length == 0 ? "No remote configured" : _platform.IsBrowser ? "Remote synchronization" : $"{snapshot.Ahead} ahead · {snapshot.Behind} behind");
-        _changes.SetFiles(snapshot.Changes, _activePath, changedRepository); _history.SetCommits(snapshot.Commits);
-        _status.Text = snapshot.Root.Length == 0 ? "Open a repository to begin" : snapshot.Operation.Length != 0 ? snapshot.Operation + " in progress · resolve and stage conflicts, then continue or abort" : snapshot.Changes.Length + " changed files  ·  " + snapshot.Branch + "  ·  " + snapshot.Commits.Length + (snapshot.Commits.Length == 200 ? "+" : "") + " commits loaded";
+        _changes.SetFiles(snapshot.Changes, _activePath, changedRepository); _history.SetCommits(snapshot.Commits, snapshot.HasMoreHistory);
+        _status.Text = snapshot.Root.Length == 0 ? "Open a repository to begin" : snapshot.Operation.Length != 0 ? snapshot.Operation + " in progress · resolve and stage conflicts, then continue or abort" : snapshot.Changes.Length + " changed files  ·  " + snapshot.Branch + "  ·  " + snapshot.Commits.Length + (snapshot.HasMoreHistory ? "+" : "") + " commits loaded";
         _empty.Visibility = !_showHistory && snapshot.Changes.Length == 0 && snapshot.Root.Length != 0 ? Visibility.Visible : Visibility.Collapsed;
         UpdateComposer(); StateChanged?.Invoke(this, EventArgs.Empty);
     }
     private void UpdateComposer()
     {
-        _composer?.SetState(Snapshot.Branch, _changes?.SelectedPaths.Length ?? 0, _busy || Snapshot.Operation.Length != 0, _preferences.Author);
+        _composer?.SetState(Snapshot.Branch, _changes?.SelectedPaths.Length ?? 0, _busy || Snapshot.Operation.Length != 0, _preferences.Author, Snapshot.Changes.Count(f => f.Staged));
         if (_editButton is not null) _editButton.IsEnabled = !_showHistory && !_busy && _activePath.Length != 0;
+        UpdateReviewCommands();
     }
     private void ApplyTabState()
     {
@@ -239,24 +245,48 @@ public sealed partial class WorkbenchView : Grid, IAsyncDisposable
     }
     private async Task SelectFileAsync(string path)
     {
-        var generation = ++_fileGeneration; var commit = _showHistory ? _selectedCommit?.Id ?? "" : ""; _activePath = path; _fileLabel.Text = path; _stats.Text = "Loading…"; UpdateComposer();
-        var result = await _backend.ExecuteAsync(new("diff") { Path = path, Value = commit }, _lifetime.Token);
-        if (generation != _fileGeneration || _disposed) return;
-        _lastDiff = result; ApplyDiff(result); StateChanged?.Invoke(this, EventArgs.Empty);
+        var generation = ++_fileGeneration; var commit = _showHistory ? _selectedCommit?.Id ?? "" : "";
+        _loadingDiff = true; _activePath = path; _fileLabel.Text = path; _stats.Text = "Loading…"; UpdateComposer();
+        try
+        {
+            var result = await _backend.ExecuteAsync(new(_showHistory || _reviewMode == "all" ? "diff" : "review") { Root = Snapshot.Root, Path = path, Value = _showHistory ? commit : _reviewMode == "all" ? "" : _reviewMode }, _lifetime.Token);
+            if (generation != _fileGeneration || _disposed) return;
+            _loadingDiff = false; _lastDiff = result; ApplyDiff(result); StateChanged?.Invoke(this, EventArgs.Empty);
+        }
+        catch
+        {
+            if (generation == _fileGeneration && !_disposed)
+            {
+                // An unsuccessful preview must not leave actions tied to an older file's diff.
+                _selection = null; _lastDiff = null; _renderedKey = null;
+                _diff.SetDocument(null); _stats.Text = "Unable to load diff";
+            }
+            throw;
+        }
+        finally { if (generation == _fileGeneration) { _loadingDiff = false; UpdateReviewCommands(); } }
     }
     private void ApplyDiff(GitResult result)
     {
-        if (result.Binary) { _diff.SetDocument(null); _stats.Text = "Binary / large file"; _fileLabel.Text = _activePath + "  ·  " + (result.Text.Length == 0 ? "Binary content is not shown" : result.Text); return; }
-        var document = DiffEngine.Compare(result.Before, result.After, _preferences.IgnoreWhitespace);
-        _diff.SetDocument(document); _diff.SetSplit(_preferences.SplitDiff); _stats.Text = $"+{document.Additions}  −{document.Deletions}" + (document.Coarse ? "  ·  coarse diff" : "") + (document.OldHasFinalNewline != document.NewHasFinalNewline ? "  ·  final newline changed" : "");
-        _empty.Visibility = Visibility.Collapsed;
+        if (result.Binary) { _selection = null; _renderedKey = null; _diff.SetDocument(null); _stats.Text = "Binary / large file"; _fileLabel.Text = _activePath + "  ·  " + (result.Text.Length == 0 ? "Binary content is not shown" : result.Text); UpdateReviewCommands(); return; }
+        var mode = _showHistory ? "history:" + _selectedCommit?.Id : _reviewMode;
+        var key = (Snapshot.Root, _activePath, mode, result.Before, result.After, _preferences.IgnoreWhitespace);
+        if (_renderedKey != key)
+        {
+            var exact = !_showHistory && _reviewMode != "all";
+            _selection = exact ? new LineSelection(result.Before, result.After, _lifetime.Token) : null;
+            var document = _selection?.Document ?? DiffEngine.Compare(result.Before, result.After, _preferences.IgnoreWhitespace, cancellation: _lifetime.Token);
+            _diff.SetDocument(document); _diff.SetSplit(!exact && _preferences.SplitDiff);
+            _renderedStatistics = $"+{document.Additions}  −{document.Deletions}" + (document.Coarse ? "  ·  coarse diff" : "") + (document.OldHasFinalNewline != document.NewHasFinalNewline ? "  ·  final newline changed" : "");
+            _renderedKey = key;
+        }
+        _stats.Text = _renderedStatistics; _empty.Visibility = Visibility.Collapsed; UpdateReviewCommands();
     }
     private async Task CommitAsync()
     {
         if (_busy || !_composer.CommitButton.IsEnabled) return;
-        await ExecuteAsync(new("commit") { Paths = _changes.SelectedPaths, Message = _composer.Message }); _composer.Clear();
+        await ExecuteAsync(new(_composer.StagedOnly ? "commitStaged" : "commit") { Paths = _composer.StagedOnly ? [] : _changes.SelectedPaths, Message = _composer.Message, IndexHash = Snapshot.IndexHash }); _composer.Clear();
     }
-    private async Task ToggleSplitAsync() { _preferences = _preferences with { SplitDiff = !_preferences.SplitDiff }; _diff.SetSplit(_preferences.SplitDiff); _splitButton.Content = _preferences.SplitDiff ? "Split" : "Unified"; await _platform.SavePreferencesAsync(_preferences); StateChanged?.Invoke(this, EventArgs.Empty); }
+    private async Task ToggleSplitAsync() { if (!_showHistory && _reviewMode != "all") return; _preferences = _preferences with { SplitDiff = !_preferences.SplitDiff }; _diff.SetSplit(_preferences.SplitDiff); _splitButton.Content = _preferences.SplitDiff ? "Split" : "Unified"; await _platform.SavePreferencesAsync(_preferences); StateChanged?.Invoke(this, EventArgs.Empty); }
     private async Task ToggleWhitespaceAsync() { _preferences = _preferences with { IgnoreWhitespace = !_preferences.IgnoreWhitespace }; if (_lastDiff is not null) ApplyDiff(_lastDiff); await _platform.SavePreferencesAsync(_preferences); }
     private async Task ToggleThemeAsync() { _preferences = _preferences with { Dark = !_preferences.Dark }; GitTheme.Current = _preferences.Dark ? GitTheme.Dark : GitTheme.Light; Build(); await _platform.SavePreferencesAsync(_preferences); StateChanged?.Invoke(this, EventArgs.Empty); }
     public async ValueTask DisposeAsync()

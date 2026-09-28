@@ -1,10 +1,11 @@
 import git from 'isomorphic-git';
 import { zipSync } from 'fflate';
+import { createReview, reviewOperations } from './review.mjs';
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder('utf-8', { fatal: true });
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const TEXT_LIMIT = 2 * 1024 * 1024;
-export const capabilities = Object.freeze(['demo', 'init', 'open', 'clone', 'refresh', 'diff', 'commitFiles', 'read', 'write', 'stage', 'unstage', 'commit', 'amend', 'discard', 'branch', 'checkout', 'renameBranch', 'deleteBranch', 'remote', 'fetch', 'pull', 'push', 'merge', 'tag', 'deleteTag', 'stash', 'stashApply', 'stashDrop', 'export']);
+export const capabilities = Object.freeze([...reviewOperations, 'history', 'demo', 'init', 'open', 'clone', 'refresh', 'diff', 'commitFiles', 'read', 'write', 'stage', 'unstage', 'commit', 'amend', 'discard', 'branch', 'checkout', 'renameBranch', 'deleteBranch', 'remote', 'fetch', 'pull', 'push', 'merge', 'tag', 'deleteTag', 'stash', 'stashApply', 'stashDrop', 'export']);
 export function relativePath(path) {
   if (typeof path !== 'string' || !path || path.length > 4096 || /[\0\r\n:\\]/.test(path) || path.startsWith('/') || path.split('/').some(x => !x || x === '.' || x === '..' || x.toLowerCase() === '.git')) throw new Error('Use a repository-relative path, not metadata or traversal.');
   return path;
@@ -23,6 +24,8 @@ function text(bytes) { if (bytes.length > TEXT_LIMIT || bytes.includes(0)) throw
 export function createBackend(fs, http, { base = '/repositories' } = {}) {
   const pfs = fs.promises;
   let dir = ''; let queue = Promise.resolve();
+  let historyLimit = 200, historyKey = '', historyRows = [], historyReads = 0;
+  const review = createReview({ fs, git, getDir: () => dir, safeFile, read });
   const options = () => ({ fs, dir });
   const head = async () => { try { return await git.resolveRef({ ...options(), ref: 'HEAD' }); } catch (e) { if (isMissing(e)) return ''; throw e; } };
   const matrix = () => git.statusMatrix(options());
@@ -69,17 +72,25 @@ export function createBackend(fs, http, { base = '/repositories' } = {}) {
       return String(data).trim().split('\n').filter(Boolean).reverse().map((line, i) => ({ id: `stash@{${i}}`, message: line.slice(line.indexOf('\t') + 1) }));
     } catch (e) { if (isMissing(e)) return []; throw e; }
   }
+  async function loadHistory(id) {
+    let shallow = '';
+    try { shallow = String(await pfs.readFile(dir + '/.git/shallow', 'utf8')); } catch (e) { if (!isMissing(e)) throw e; }
+    const key = dir + '\0' + id + '\0' + historyLimit + '\0' + shallow;
+    if (key === historyKey) return historyRows;
+    const rows = id ? await git.log({ ...options(), depth: historyLimit + 1 }) : [];
+    historyReads++; historyRows = rows; historyKey = key; return rows;
+  }
   async function snapshot() {
     const id = await head();
     const [rows, history, branches, tags, remotes, branch, stashes] = await Promise.all([
-      matrix(), id ? git.log({ ...options(), depth: 200 }) : [], git.listBranches(options()), git.listTags(options()),
+      matrix(), loadHistory(id), git.listBranches(options()), git.listTags(options()),
       git.listRemotes(options()), git.currentBranch(options()), stashList()
     ]);
     return {
       root: dir, name: dir.split('/').pop(), head: id, branch: branch || 'Detached HEAD', branches, tags, remotes, stashes,
       changes: rows.filter(([, h, w, s]) => h !== w || h !== s).map(([path, h, w, s]) => ({ path, status: h === 0 ? 'A' : w === 0 ? 'D' : 'M', staged: h !== s, conflict: false, originalPath: '' })),
-      commits: history.map(({ oid, commit }) => ({ id: oid, author: commit.author.name, email: commit.author.email, date: new Date(commit.author.timestamp * 1000).toISOString(), message: commit.message.trimEnd(), parents: commit.parent })),
-      ahead: 0, behind: 0, operation: ''
+      commits: history.slice(0, historyLimit).map(({ oid, commit }) => ({ id: oid, author: commit.author.name, email: commit.author.email, date: new Date(commit.author.timestamp * 1000).toISOString(), message: commit.message.trimEnd(), parents: commit.parent })),
+      ahead: 0, behind: 0, operation: '', historyLimit, hasMoreHistory: history.length > historyLimit, indexHash: await review.indexHash()
     };
   }
   async function commitFiles(id) {
@@ -134,7 +145,7 @@ export function createBackend(fs, http, { base = '/repositories' } = {}) {
       if (op !== 'open' && await exists(destination) && (await pfs.readdir(destination)).length) throw new Error('Repository destination is not empty.');
       if (op === 'open' && !(await exists(destination + '/.git'))) throw new Error('No browser repository exists with that name.');
       if (op !== 'open') await mkdir(destination);
-      const previous = dir; dir = destination;
+      const previous = dir; dir = destination; historyLimit = 200; historyKey = '';
       try {
         if (op === 'init') await git.init({ ...options(), defaultBranch: 'main' });
         if (op === 'clone') await git.clone({ ...options(), http, url: https(r.value), corsProxy: r.proxy ? https(r.proxy) : undefined, singleBranch: true, depth: 100, onAuth: () => ({ username: r.token || '', password: 'x-oauth-basic' }) });
@@ -143,11 +154,16 @@ export function createBackend(fs, http, { base = '/repositories' } = {}) {
     }
     if (!dir) throw new Error('Open a repository first.');
     if (r.root && r.root !== dir) throw new Error('Repository changed. Refresh before continuing.');
-    if (!['refresh', 'read', 'diff', 'commitFiles', 'export'].includes(op) && r.expectedHead && r.expectedHead !== await head()) throw new Error('HEAD changed. Refresh and review before retrying.');
+    if (!['refresh', 'read', 'diff', 'commitFiles', 'export', 'review', 'history'].includes(op) && r.expectedHead && r.expectedHead !== await head()) throw new Error('HEAD changed. Refresh and review before retrying.');
     const author = { name: r.author || 'GitSpace User', email: r.email || 'user@example.com' };
     const network = { ...options(), http, remote: 'origin', corsProxy: r.proxy ? https(r.proxy) : undefined, onAuth: () => ({ username: r.token || '', password: 'x-oauth-basic' }) };
+    if (reviewOperations.includes(op)) {
+      const result = await review.execute({ ...r, author: author.name, email: author.email });
+      return result ?? { snapshot: await snapshot() };
+    }
     switch (op) {
       case 'refresh': break;
+      case 'history': historyLimit = Math.max(1, Math.min(2000, Math.trunc(r.limit || 200))); break;
       case 'read': return { text: await read(r.path) };
       case 'write': await write(r.path, r.message); break;
       case 'diff': {
@@ -234,6 +250,7 @@ export function createBackend(fs, http, { base = '/repositories' } = {}) {
     execute(request) {
       const result = queue.then(() => execute(request)); queue = result.catch(() => {}); return result;
     },
-    capabilities
+    capabilities,
+    get diagnostics() { return { historyReads }; }
   };
 }

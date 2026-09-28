@@ -25,7 +25,8 @@ public sealed partial class App : Application
             await ApplicationFonts.InitializeAsync();
             var platform = new AppPlatform(); _workbench = new WorkbenchView(platform); _window.Content = _workbench;
             await _workbench.InitializeAsync();
-            _workbench.StateChanged += (_, _) => PublishDiagnostics(); _workbench.Diff.Rendered += (_, _) => PublishDiagnostics(); PublishDiagnostics();
+            _workbench.StateChanged += (_, _) => PublishDiagnostics(); PublishDiagnostics();
+            _window.Activated += async (_, e) => { if (e.WindowActivationState != Windows.UI.Core.CoreWindowActivationState.Deactivated && _workbench is not null) await _workbench.RefreshOnActivationAsync(); };
             _window.Closed += async (_, _) => { if (_workbench is not null) await _workbench.DisposeAsync(); };
             Console.WriteLine("[GitSpace] Repository workbench ready.");
         }
@@ -39,7 +40,7 @@ public sealed partial class App : Application
     {
 #if __WASM__
         if (_workbench is null) return;
-        var info = GitSpace.Core.GitJson.Serialize(new { ready = _workbench.IsReady, busy = _workbench.IsBusy, repository = _workbench.Snapshot.Name, branch = _workbench.Snapshot.Branch, changes = _workbench.Snapshot.Changes.Length, commits = _workbench.Snapshot.Commits.Length, head = _workbench.Snapshot.Head, activePath = _workbench.ActivePath, history = _workbench.IsHistory, split = _workbench.Diff.Viewport.Split, frames = _workbench.Diff.Renderer.FramesRendered, visibleRows = _workbench.Diff.Renderer.LastVisibleRows, rowCount = _workbench.Diff.Renderer.RowCount(_workbench.Diff.Viewport.Split) });
+        var info = GitSpace.Core.GitJson.Serialize(new { ready = _workbench.IsReady, busy = _workbench.IsBusy, repository = _workbench.Snapshot.Name, branch = _workbench.Snapshot.Branch, changes = _workbench.Snapshot.Changes.Length, commits = _workbench.Snapshot.Commits.Length, head = _workbench.Snapshot.Head, activePath = _workbench.ActivePath, history = _workbench.IsHistory, reviewMode = _workbench.ReviewMode, stagedFiles = _workbench.Snapshot.Changes.Count(f => f.Staged), selectedRows = _workbench.Diff.SelectedChangedRows.Length, scrollY = _workbench.Diff.Viewport.ScrollY, split = _workbench.Diff.Viewport.Split, frames = _workbench.Diff.Renderer.FramesRendered, visibleRows = _workbench.Diff.Renderer.LastVisibleRows, rowCount = _workbench.Diff.Renderer.RowCount(_workbench.Diff.Viewport.Split) });
         Uno.Foundation.WebAssemblyRuntime.InvokeJS("globalThis.gitspaceDiagnostics = " + info + "; 'updated'");
 #endif
     }

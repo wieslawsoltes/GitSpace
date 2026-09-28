@@ -60,7 +60,7 @@ Only open repositories you trust. GitSpace disables repository hooks for its com
 | Review | Changed files, file inclusion, stage/unstage, unified and split diffs, line numbers, intraline split spans, search, whitespace-ignore view, copy, text zoom |
 | Editing | Bounded UTF-8 file editor, new files, external-change check before saving, tracked-file discard with confirmation |
 | Commits | Required summary, optional description, author identity, selected-file commit, amend with confirmation |
-| History | Latest 200 commits, filter, author/date/message, per-commit file changes and parent comparison |
+| History | Paged history (up to 2,000 commits), filter, author/date/message, per-commit file changes and parent comparison |
 | Branches | Create, switch, rename, safe merged-branch deletion, lightweight tags |
 | Synchronization | Fetch, fast-forward pull, non-force push; explicit trusted browser proxy configuration |
 | Integration | Desktop merge/rebase/revert/cherry-pick and continue/abort; browser fast-forward merge only |
@@ -141,7 +141,7 @@ Successful workflow runs expose source, browser, screenshots/test reports, and r
 
 ## Safety, compatibility and contribution
 
-Read [SECURITY.md](SECURITY.md) and the [compatibility matrix](docs/compatibility.md). Particularly important remaining work includes OAuth/account management; partial-line/hunk staging; graphical conflict resolution; Git LFS/submodule/worktree UI; interactive rebase and richer history operations; native shell/editor integration; comprehensive accessibility/localization; installers/updaters; and exhaustive UI parity/performance qualification.
+Read [SECURITY.md](SECURITY.md) and the [compatibility matrix](docs/compatibility.md). Particularly important remaining work includes OAuth/account management; further conflict-resolution and staging qualification; Git LFS/submodule/worktree UI; interactive rebase and richer history operations; native shell/editor integration; comprehensive accessibility/localization; installers/updaters; and exhaustive UI parity/performance qualification.
 
 Contributions should preserve the package boundaries, use capability-gated operations, and add a real backend or UI regression test. Never replace unavailable functionality with a simulated success result.
 
@@ -150,3 +150,7 @@ Contributions should preserve the package boundaries, use capability-gated opera
 GitSpace code is **MIT licensed**. Uno Platform, SkiaSharp, browser dependencies and fonts retain their own licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). System Git is an external, separately installed tool and is not bundled or linked into GitSpace libraries.
 
 GitHub Desktop is an inspiration for the workflow and layout. GitSpace is an independent project, not affiliated with or endorsed by GitHub, Inc. GitHub and GitHub Desktop names and marks belong to their respective owners.
+
+### Review and responsiveness improvements
+
+Unstaged/Staged diff modes now support exact line/hunk selection, guarded index-only updates and staged-only commits. Native conflicts have a current/incoming/result editor with explicit resolution. History pages, recent repositories, focus refresh, recycled row templates and retained unchanged diff state reduce repeated UI work. Newline/BOM handling is covered by regression tests. See the compatibility matrix for the remaining platform-specific limits.

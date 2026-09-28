@@ -53,6 +53,11 @@ public sealed partial class WorkbenchView
     {
         var panel = new StackPanel { Spacing = 12, MinWidth = 360 }; panel.Children.Add(GitTheme.Label(_platform.IsBrowser ? "Open a repository stored in this browser" : "Open a local Git repository", 13, bold: true));
         var root = GitTheme.Input(_platform.IsBrowser ? "Repository name" : "Full repository path"); root.Text = Snapshot.Root; AutomationProperties.SetName(root, "Repository path or name"); panel.Children.Add(root);
+        if (_preferences.RecentRepositories.Length > 0)
+        {
+            var recent = new ComboBox { ItemsSource = _preferences.RecentRepositories, PlaceholderText = "Recent repositories", MinHeight = 30, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
+            AutomationProperties.SetName(recent, "Recent repositories"); recent.SelectionChanged += (_, _) => { if (recent.SelectedItem is string selected) root.Text = selected; }; panel.Children.Add(recent);
+        }
         var note = GitTheme.Label(_platform.IsBrowser ? "Browser repositories use isolated browser storage, not your computer's working folders. New and Clone are available from the File menu." : "Only open repositories you trust. Git filters and configured credential helpers may execute programs. Repository hooks are disabled by GitSpace.", 12, true); note.TextWrapping = TextWrapping.Wrap; panel.Children.Add(note);
         var dialog = Dialog("Current repository", panel, "Open repository");
         if (await ShowAsync(dialog)) await ExecuteAsync(new("open") { Root = root.Text.Trim() });
@@ -122,7 +127,7 @@ public sealed partial class WorkbenchView
         if (!await ShowAsync(dialog)) return;
         var current = await _backend.ExecuteAsync(new("read") { Path = path }, _lifetime.Token);
         if (current.Text != contents) throw new InvalidOperationException("This file changed while the editor was open. Reopen it to review the current content before saving.");
-        await ExecuteAsync(new("write") { Path = path, Message = editor.Text }); _activePath = path; _showHistory = false; ApplyTabState(); _changes.SetFiles(Snapshot.Changes, path); await SelectFileAsync(path);
+        await ExecuteAsync(new("write") { Path = path, Message = GitText.FromEditor(editor.Text, contents) }); _activePath = path; _showHistory = false; ApplyTabState(); _changes.SetFiles(Snapshot.Changes, path); await SelectFileAsync(path);
     }
     private async Task DiscardAsync()
     {
@@ -152,8 +157,13 @@ public sealed partial class WorkbenchView
     private async Task AmendAsync()
     {
         if (Snapshot.Commits.Length == 0) return;
-        var message = await PromptAsync("Amend latest commit", "Commit message", Snapshot.Commits[0].Message, "This rewrites the latest commit ID and includes selected working changes. Avoid amending commits already shared with others.", "Amend commit");
-        if (message is not null) await ExecuteAsync(new("amend") { Paths = _changes.SelectedPaths, Message = message, Confirm = true });
+        var message = GitTheme.Input("Commit message", true); message.Text = Snapshot.Commits[0].Message;
+        message.MinWidth = 390; message.Height = 160; AutomationProperties.SetName(message, "Amended commit message");
+        var panel = new StackPanel { Spacing = 10 }; panel.Children.Add(message);
+        var warning = GitTheme.Label("This rewrites the latest commit ID and includes selected working changes. Avoid amending commits already shared with others.", 12, true);
+        warning.TextWrapping = TextWrapping.Wrap; warning.MaxWidth = 480; panel.Children.Add(warning);
+        if (await ShowAsync(Dialog("Amend latest commit", panel, "Amend commit")))
+            await ExecuteAsync(new("amend") { Paths = _changes.SelectedPaths, Message = GitText.ToLf(message.Text), Confirm = true });
     }
     private async Task HistoryActionAsync(string operation)
     {
