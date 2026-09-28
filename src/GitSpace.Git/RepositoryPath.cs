@@ -1,6 +1,6 @@
 namespace GitSpace.Git;
 
-/// <summary>Resolves directory aliases, including macOS /var → /private/var, before repository identity comparisons.</summary>
+/// <summary>Resolves directory aliases, including macOS /var to /private/var, before identity comparisons.</summary>
 public static class RepositoryPath
 {
     public static string CanonicalDirectory(string path)
@@ -8,7 +8,7 @@ public static class RepositoryPath
         var full = Path.GetFullPath(path);
         var root = Path.GetPathRoot(full) ?? throw new ArgumentException("A rooted directory is required.", nameof(path));
         var current = root;
-        foreach (var part in full[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in full[root.Length..].Split(new char[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries))
         {
             current = Path.Combine(current, part);
             var directory = new DirectoryInfo(current);

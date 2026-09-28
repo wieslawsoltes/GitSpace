@@ -8,7 +8,14 @@ public sealed partial class App : Application
 {
     private Window? _window;
     private WorkbenchView? _workbench;
-    public App() { InitializeComponent(); UnhandledException += (_, e) => Console.Error.WriteLine("[GitSpace] " + e.Exception); }
+    public App()
+    {
+        // Keep UI typography distinct from the embedded monospace diff typeface.
+        // A concrete static font avoids a host fallback when a manifest is not ready.
+        Uno.UI.FeatureConfiguration.Font.DefaultTextFontFamily = "ms-appx:///Uno.Fonts.OpenSans/Fonts/OpenSans-Regular.ttf";
+        InitializeComponent();
+        UnhandledException += (_, e) => Console.Error.WriteLine("[GitSpace] " + e.Exception);
+    }
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         _window = new Window { Title = "GitSpace" };
