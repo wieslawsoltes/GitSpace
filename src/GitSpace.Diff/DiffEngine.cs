@@ -29,8 +29,16 @@ public static class DiffEngine
     /// <summary>Myers shortest edit script with a hard work/trace budget; a coarse replacement is returned rather than freezing the UI.</summary>
     public static DiffDocument Compare(string before, string after, bool ignoreWhitespace = false, int workBudget = 2_000_000, CancellationToken cancellation = default)
     {
+        cancellation.ThrowIfCancellationRequested();
         var a = Lines(before); var b = Lines(after);
-        bool Equal(string x, string y) => ignoreWhitespace ? Normalize(x) == Normalize(y) : x == y;
+        var normalized = ignoreWhitespace ? new Dictionary<string, string>(StringComparer.Ordinal) : null;
+        string Key(string text)
+        {
+            if (normalized is null) return text;
+            if (!normalized.TryGetValue(text, out var key)) normalized[text] = key = Normalize(text);
+            return key;
+        }
+        bool Equal(string x, string y) => Key(x) == Key(y);
         var prefix = 0; while (prefix < a.Length && prefix < b.Length && Equal(a[prefix], b[prefix])) prefix++;
         var suffix = 0; while (suffix < a.Length - prefix && suffix < b.Length - prefix && Equal(a[^(suffix + 1)], b[^(suffix + 1)])) suffix++;
         var edits = new List<Edit>(a.Length + b.Length);
@@ -46,7 +54,6 @@ public static class DiffEngine
             for (var d = 0; d <= max; d++)
             {
                 cancellation.ThrowIfCancellationRequested();
-                // Trace memory is also bounded (roughly 32 MiB by default).
                 if (work + d * 2L > workBudget || (long)(trace.Count + 1) * v.Length > 8_000_000) { coarse = true; break; }
                 trace.Add((int[])v.Clone());
                 for (var k = -d; k <= d; k += 2)
@@ -76,8 +83,8 @@ public static class DiffEngine
                     var previousX = previous[offset + previousK]; var previousY = previousX - previousK;
                     while (x > previousX && y > previousY) { reverse.Add(new(DiffKind.Context, b[prefix + y - 1])); x--; y--; }
                     if (d == 0) break;
-                    if (x == previousX) { reverse.Add(new(DiffKind.Addition, b[prefix + --y])); }
-                    else { reverse.Add(new(DiffKind.Deletion, a[prefix + --x])); }
+                    if (x == previousX) reverse.Add(new(DiffKind.Addition, b[prefix + --y]));
+                    else reverse.Add(new(DiffKind.Deletion, a[prefix + --x]));
                 }
                 reverse.Reverse(); edits.AddRange(reverse);
             }
@@ -85,13 +92,14 @@ public static class DiffEngine
         for (var i = b.Length - suffix; i < b.Length; i++) edits.Add(new(DiffKind.Context, b[i]));
         var oldLine = 1; var newLine = 1; var result = new List<DiffLine>(edits.Count);
         foreach (var edit in edits) result.Add(new(edit.Kind, edit.Text, edit.Kind == DiffKind.Addition ? 0 : oldLine++, edit.Kind == DiffKind.Deletion ? 0 : newLine++));
-        return new(result, coarse, before.EndsWith('\n'), after.EndsWith('\n'));
+        return new(result, coarse, EndsInNewline(before), EndsInNewline(after));
     }
+    private static bool EndsInNewline(string text) => text.EndsWith('\n') || text.EndsWith('\r');
     public static string[] Lines(string text)
     {
         if (text.Length == 0) return [];
-        var result = text.Replace("\r\n", "\n").Split('\n');
-        return text.EndsWith('\n') ? result[..^1] : result;
+        var result = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        return EndsInNewline(text) ? result[..^1] : result;
     }
     private static string Normalize(string text) => string.Concat(text.Where(c => !char.IsWhiteSpace(c)));
     public static (int Start, int OldLength, int NewLength) ChangedSpan(string before, string after)

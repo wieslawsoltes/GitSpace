@@ -13,7 +13,7 @@ public sealed class GitProcess : IDisposable
 {
     private readonly string _hooks = Path.Combine(Path.GetTempPath(), "gitspace-hooks-" + Guid.NewGuid().ToString("N"));
     public GitProcess() => Directory.CreateDirectory(_hooks);
-    public async Task<GitProcessResult> RunAsync(string directory, IEnumerable<string> arguments, CancellationToken cancellation = default, string? input = null, bool allowFailure = false)
+    public async Task<GitProcessResult> RunAsync(string directory, IEnumerable<string> arguments, CancellationToken cancellation = default, string? input = null, bool allowFailure = false, IReadOnlyDictionary<string, string>? environment = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         timeout.CancelAfter(TimeSpan.FromMinutes(10));
@@ -24,16 +24,17 @@ public sealed class GitProcess : IDisposable
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8, StandardInputEncoding = new UTF8Encoding(false)
         };
         var argv = arguments.ToArray();
-        // Do not set literal path mode for compound commands such as stash: Git's own
-        // internal pathspecs include magic prefixes, and globally disabling those leaves
-        // untracked files behind. Only explicitly supplied file lists need literal mode.
         info.ArgumentList.Add("--no-pager");
-        if (argv.Contains("--") || argv.Contains("--pathspec-file-nul")) info.ArgumentList.Add("--literal-pathspecs");
+        var commandIndex = 0;
+        while (commandIndex < argv.Length && argv[commandIndex] == "-c") commandIndex += 2;
+        var command = commandIndex < argv.Length ? argv[commandIndex] : "";
+        if (argv.Contains("--pathspec-file-nul") || (argv.Contains("--") && command is "add" or "restore" or "rm" or "ls-files" or "diff" or "check-attr" or "commit")) info.ArgumentList.Add("--literal-pathspecs");
         foreach (var arg in new[] { "-c", "color.ui=false", "-c", "core.quotepath=false", "-c", "core.hooksPath=" + _hooks }) info.ArgumentList.Add(arg);
         foreach (var arg in argv) info.ArgumentList.Add(arg);
         info.Environment["GIT_TERMINAL_PROMPT"] = "0";
         info.Environment["GIT_EDITOR"] = "true";
         info.Environment["GIT_SEQUENCE_EDITOR"] = "true";
+        if (environment is not null) foreach (var entry in environment) info.Environment[entry.Key] = entry.Value;
         using var process = new Process { StartInfo = info };
         try { if (!process.Start()) throw new InvalidOperationException("Git did not start."); }
         catch (System.ComponentModel.Win32Exception e) { throw new InvalidOperationException("Install Git 2.30 or newer and make it available on PATH.", e); }
@@ -55,7 +56,8 @@ public sealed class GitProcess : IDisposable
             }
             catch { Kill(); throw; }
         }
-        var stdout = Read(process.StandardOutput); var stderr = Read(process.StandardError);
+        using var outputReader = new StreamReader(process.StandardOutput.BaseStream, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: false);
+        var stdout = Read(outputReader); var stderr = Read(process.StandardError);
         try
         {
             if (input is not null) await process.StandardInput.WriteAsync(input.AsMemory(), timeout.Token).ConfigureAwait(false);

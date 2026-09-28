@@ -10,7 +10,7 @@ public sealed partial class DesktopGitBackend : IGitBackend
     private string _root = "";
     public string DisplayName => "System Git · desktop";
     public IReadOnlySet<string> Capabilities { get; } = new HashSet<string>(StringComparer.Ordinal)
-    { "demo", "open", "init", "clone", "refresh", "diff", "commitFiles", "read", "write", "stage", "unstage", "commit", "amend", "discard", "branch", "checkout", "renameBranch", "deleteBranch", "fetch", "pull", "push", "remote", "stash", "stashApply", "stashDrop", "merge", "rebase", "continue", "abort", "revert", "cherryPick", "tag", "deleteTag" };
+    { "demo", "open", "init", "clone", "refresh", "diff", "commitFiles", "read", "write", "stage", "unstage", "commit", "amend", "discard", "branch", "checkout", "renameBranch", "deleteBranch", "fetch", "pull", "push", "remote", "stash", "stashApply", "stashDrop", "merge", "rebase", "continue", "abort", "revert", "cherryPick", "tag", "deleteTag", "indexDiff", "stageContent", "commitStaged", "undoCommit", "history", "conflict", "resolveConflict", "worktrees", "addWorktree", "removeWorktree", "submodules", "updateSubmodules", "addSubmodule", "lfsStatus", "lfsPull", "remoteUrl", "removeRemote", "pushTag", "reflog" };
     private Task<GitProcessResult> Run(CancellationToken ct, params string[] args) => _git.RunAsync(_root, args, ct);
     private async Task<string> Optional(CancellationToken ct, params string[] args)
     {
@@ -24,6 +24,7 @@ public sealed partial class DesktopGitBackend : IGitBackend
         try
         {
             var op = request.Operation;
+            if (op is "fetch" or "pull" or "open" or "clone" or "init") _historyKey = "";
             if (op == "demo") { await Demo(cancellation).ConfigureAwait(false); return new() { Snapshot = await Snapshot(cancellation).ConfigureAwait(false) }; }
             if (op is "open" or "init" or "clone")
             {
@@ -43,6 +44,8 @@ public sealed partial class DesktopGitBackend : IGitBackend
             if (request.Root.Length != 0 && !RepositoryPath.SameDirectory(request.Root, _root)) throw new InvalidOperationException("Repository changed; refresh before continuing.");
             if (op is not ("refresh" or "diff" or "read" or "commitFiles") && request.ExpectedHead.Length != 0 && request.ExpectedHead != await Optional(cancellation, "rev-parse", "--verify", "HEAD").ConfigureAwait(false))
                 throw new InvalidOperationException("HEAD changed outside GitSpace. Refresh and review before retrying.");
+            var extended = await ExecuteExtended(request, cancellation).ConfigureAwait(false);
+            if (extended is not null) return extended;
             switch (op)
             {
                 case "refresh": break;
@@ -86,14 +89,14 @@ public sealed partial class DesktopGitBackend : IGitBackend
                     if (!System.Text.RegularExpressions.Regex.IsMatch(request.Value, "^stash@\\{[0-9]+\\}$")) throw new ArgumentException("Invalid stash reference.");
                     if (op == "stashDrop") GitSafety.Confirm(request);
                     await Run(cancellation, "stash", op == "stashApply" ? "apply" : "drop", request.Value).ConfigureAwait(false); break;
-                case "merge": GitSafety.Confirm(request); await Run(cancellation, "merge", "--no-edit", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
-                case "rebase": GitSafety.Confirm(request); await Run(cancellation, "rebase", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
+                case "merge": GitSafety.Confirm(request); await RunAs(request, cancellation, "merge", "--no-edit", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
+                case "rebase": GitSafety.Confirm(request); await RunAs(request, cancellation, "rebase", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
                 case "revert": case "cherryPick":
-                    GitSafety.Confirm(request); await Run(cancellation, op == "revert" ? "revert" : "cherry-pick", "--no-edit", GitSafety.CommitId(request.Value)).ConfigureAwait(false); break;
+                    GitSafety.Confirm(request); await RunAs(request, cancellation, op == "revert" ? "revert" : "cherry-pick", "--no-edit", GitSafety.CommitId(request.Value)).ConfigureAwait(false); break;
                 case "continue": case "abort":
                     GitSafety.Confirm(request); var operation = await Operation(cancellation).ConfigureAwait(false);
                     if (operation.Length == 0) throw new InvalidOperationException("No merge, rebase, cherry-pick or revert is in progress.");
-                    await Run(cancellation, operation, "--" + op).ConfigureAwait(false); break;
+                    await RunAs(request, cancellation, operation, "--" + op).ConfigureAwait(false); break;
                 case "tag": await Run(cancellation, "tag", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
                 case "deleteTag": GitSafety.Confirm(request); await Run(cancellation, "tag", "-d", GitSafety.Ref(request.Value)).ConfigureAwait(false); break;
             }

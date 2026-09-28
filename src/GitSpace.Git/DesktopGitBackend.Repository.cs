@@ -33,7 +33,7 @@ public sealed partial class DesktopGitBackend
         var full = SafeFile(path);
         if (!File.Exists(full)) return "";
         if (new FileInfo(full).Length > GitSafety.MaximumTextBytes) throw new InvalidDataException("File exceeds the 2 MiB text preview limit.");
-        var text = await File.ReadAllTextAsync(full, new UTF8Encoding(false, true), ct).ConfigureAwait(false); GitSafety.Text(text); return text;
+        var text = new UTF8Encoding(false, true).GetString(await File.ReadAllBytesAsync(full, ct).ConfigureAwait(false)); GitSafety.Text(text); return text;
     }
     private async Task<string> Blob(string revision, string path, CancellationToken ct)
     {
@@ -68,32 +68,37 @@ public sealed partial class DesktopGitBackend
     }
     private async Task<string> Operation(CancellationToken ct)
     {
+        var directory = (await Run(ct, "rev-parse", "--absolute-git-dir").ConfigureAwait(false)).Output.Trim();
         foreach (var (file, operation) in new[] { ("rebase-merge", "rebase"), ("rebase-apply", "rebase"), ("MERGE_HEAD", "merge"), ("CHERRY_PICK_HEAD", "cherry-pick"), ("REVERT_HEAD", "revert") })
         {
-            var path = await Optional(ct, "rev-parse", "--git-path", file).ConfigureAwait(false);
-            if (path.Length != 0 && (File.Exists(Path.GetFullPath(path, _root)) || Directory.Exists(Path.GetFullPath(path, _root)))) return operation;
+            var path = Path.Combine(directory, file);
+            if (File.Exists(path) || Directory.Exists(path)) return operation;
         }
         return "";
     }
+    private string _historyKey = "";
+    private GitCommit[] _historyCache = [];
     private async Task<GitSnapshot> Snapshot(CancellationToken ct)
     {
         var status = Run(ct, "status", "--porcelain=v1", "-z", "--untracked-files=all");
-        var head = Optional(ct, "rev-parse", "--verify", "HEAD");
+        var headId = await Optional(ct, "rev-parse", "--verify", "HEAD").ConfigureAwait(false);
+        var historyKey = _root + "|" + headId;
         var branch = Optional(ct, "symbolic-ref", "--short", "HEAD");
-        var log = Optional(ct, "log", "-z", "-n", "200", "--format=%H%x00%an%x00%ae%x00%aI%x00%P%x00%B");
+        var log = historyKey == _historyKey ? Task.FromResult("") : Optional(ct, "log", "-z", "-n", "200", "--format=%H%x00%an%x00%ae%x00%aI%x00%P%x00%B");
         var branches = Optional(ct, "branch", "--format=%(refname:short)");
         var tags = Optional(ct, "tag", "--list");
         var stashes = Optional(ct, "stash", "list", "--format=%gd%x09%gs");
         var remoteNames = Optional(ct, "remote");
         var counts = Optional(ct, "rev-list", "--left-right", "--count", "HEAD...@{upstream}");
-        await Task.WhenAll(status, head, branch, log, branches, tags, stashes, remoteNames, counts).ConfigureAwait(false);
+        await Task.WhenAll(status, branch, log, branches, tags, stashes, remoteNames, counts).ConfigureAwait(false);
+        if (_historyKey != historyKey) { _historyCache = StatusParser.Log(await log.ConfigureAwait(false)); _historyKey = historyKey; }
         var remotes = new List<GitRemote>();
         foreach (var name in Split(await remoteNames.ConfigureAwait(false))) remotes.Add(new(name, await Optional(ct, "remote", "get-url", name).ConfigureAwait(false)));
         var countValues = (await counts.ConfigureAwait(false)).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         return new()
         {
-            Root = _root, Name = Path.GetFileName(_root), Head = await head.ConfigureAwait(false), Branch = (await branch.ConfigureAwait(false)) is { Length: > 0 } b ? b : "Detached HEAD",
-            Changes = StatusParser.Parse((await status.ConfigureAwait(false)).Output), Commits = StatusParser.Log(await log.ConfigureAwait(false)),
+            Root = _root, Name = Path.GetFileName(_root), Head = headId, Branch = (await branch.ConfigureAwait(false)) is { Length: > 0 } b ? b : "Detached HEAD",
+            Changes = StatusParser.Parse((await status.ConfigureAwait(false)).Output), Commits = _historyCache,
             Branches = Split(await branches.ConfigureAwait(false)), Tags = Split(await tags.ConfigureAwait(false)), Remotes = remotes.ToArray(),
             Stashes = Split(await stashes.ConfigureAwait(false)).Select(line => { var i = line.IndexOf('\t'); return new GitStash(i < 0 ? line : line[..i], i < 0 ? "" : line[(i + 1)..]); }).ToArray(),
             Ahead = countValues.Length == 2 && int.TryParse(countValues[0], out var a) ? a : 0,

@@ -6,7 +6,7 @@ namespace GitSpace.Core;
 public sealed record GitChange(string Path, string Status = "M", bool Staged = false, bool Conflict = false, string OriginalPath = "");
 public sealed record GitCommit(string Id, string Author, string Email, string Date, string Message, string[] Parents)
 {
-    public string Summary => Message.Split('\n')[0];
+    public string Summary => GitText.ToLf(Message).Split('\n')[0];
     public string ShortId => Id.Length > 7 ? Id[..7] : Id;
 }
 public sealed record GitStash(string Id, string Message);
@@ -42,6 +42,9 @@ public sealed record GitRequest(string Operation)
     public bool Confirm { get; init; }
     public string Proxy { get; init; } = "";
     public string Token { get; init; } = "";
+    public string ExpectedFileId { get; init; } = "";
+    public int Skip { get; init; }
+    public int Limit { get; init; } = 200;
 }
 public sealed record GitResult
 {
@@ -51,6 +54,10 @@ public sealed record GitResult
     public string After { get; init; } = "";
     public string Text { get; init; } = "";
     public bool Binary { get; init; }
+    public string Base { get; init; } = "";
+    public string IndexId { get; init; } = "";
+    public string FileId { get; init; } = "";
+    public GitCommit[] Commits { get; init; } = [];
 }
 public interface IGitBackend : IAsyncDisposable
 {
