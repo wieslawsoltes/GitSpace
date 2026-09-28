@@ -36,7 +36,7 @@ public sealed class ChangedFilesView : Grid
     private ChangeRow[] _visible = [];
     private GitChange[] _files = [];
     private string _active = "";
-    private bool _updating;
+    private bool _updating, _selectionPending;
     public event EventHandler<string>? FileSelected;
     public event EventHandler? SelectionChanged;
     public string[] SelectedPaths => _files.Where(f => _rows[f.Path].Included).Select(f => f.Path).ToArray();
@@ -62,9 +62,10 @@ public sealed class ChangedFilesView : Grid
             """);
         _list.ItemContainerStyle = RowStyle(30);
         Grid.SetRow(_list, 2); Children.Add(_list); AutomationProperties.SetName(_list, "Changed files");
-        _filter.TextChanged += (_, _) => ReconcileVisible(true);
+        _filter.TextChanged += (_, _) => ReconcileVisible();
         _all.Checked += (_, _) => ToggleAll(true); _all.Unchecked += (_, _) => ToggleAll(false);
         _list.SelectionChanged += (_, _) => { if (!_updating && _list.SelectedItem is ChangeRow row) { _active = row.Path; FileSelected?.Invoke(this, row.Path); } };
+        _list.LayoutUpdated += (_, _) => { if (_selectionPending) SelectRealizedActiveRow(); };
     }
     internal static Style RowStyle(double height)
     {
@@ -104,25 +105,32 @@ public sealed class ChangedFilesView : Grid
             if (_rows.TryGetValue(file.Path, out var row)) row.Update(file);
             else _rows[file.Path] = new(file, true, RowChanged);
         }
-        _files = files; _active = active; _updating = false; ReconcileVisible(newRepository || _visible.Length == 0); UpdateHeader();
+        _files = files; _active = active; _updating = false; ReconcileVisible(); UpdateHeader();
     }
-    private void ReconcileVisible(bool resetScroll = false)
+    private void ReconcileVisible()
     {
         var visible = _files.Where(f => f.Path.Contains(_filter.Text, StringComparison.OrdinalIgnoreCase)).Select(f => _rows[f.Path]).ToArray();
         _updating = true;
         // No ItemsSource reset for a status-only refresh: preserve containers, scroll and focus.
         if (!_visible.SequenceEqual(visible)) { _visible = visible; _list.ItemsSource = visible; }
-        _list.SelectedItem = _rows.GetValueOrDefault(_active); _updating = false;
-        if (resetScroll && visible.Length != 0)
+        _updating = false;
+        SelectRealizedActiveRow();
+    }
+    private void SelectRealizedActiveRow()
+    {
+        var row = _visible.FirstOrDefault(r => r.Path == _active);
+        // A premature SelectedItem assignment requests BringIntoView before the
+        // virtual panel has laid out its rows. Select only an existing container;
+        // do not force ScrollIntoView during initialization or status refreshes.
+        if (row is not null && (_list.ActualHeight <= 0 || _list.ContainerFromItem(row) is null))
         {
-            // Selection can scroll before the first measure. Restore the leading item
-            // after realization; ordinary status-only refreshes never enter this path.
-            var expected = _visible;
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-            {
-                if (ReferenceEquals(expected, _visible)) _list.ScrollIntoView(expected[0], ScrollIntoViewAlignment.Leading);
-            });
+            _selectionPending = true; return;
         }
+        _selectionPending = false;
+        if (ReferenceEquals(_list.SelectedItem, row)) return;
+        var updating = _updating; _updating = true;
+        try { _list.SelectedItem = row; }
+        finally { _updating = updating; }
     }
 }
 

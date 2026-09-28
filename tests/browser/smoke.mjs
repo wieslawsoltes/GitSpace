@@ -20,8 +20,7 @@ async function click(name, role = 'button') {
   await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
 }
 async function activateDialog(name) {
-  // This invokes Uno's actual managed IInvokeProvider through the shipped
-  // accessibility bridge. No application command or worker API is invoked here.
+  // Invoke the shipped managed IInvokeProvider, never an application command or worker API.
   const button = page.getByRole('button', { name, exact: true });
   await button.waitFor({ state: 'attached' }); assert.equal(await button.isDisabled(), false);
   await button.dispatchEvent('click');
@@ -33,8 +32,6 @@ async function input(name, value) {
 async function menu(title, item) { await click(title); await click(item, 'menuitem'); }
 async function reviewMode(index) {
   const control = page.getByRole('combobox', { name: 'Diff review mode', exact: true });
-  // The semantic overlay keeps stale coordinates when a collapsed ancestor moves.
-  // Exercise the shipped expand/selection automation providers, not application APIs.
   await control.dispatchEvent('click');
   await page.getByRole('option', { name: ['All changes', 'Unstaged changes', 'Staged changes'][index], exact: true }).dispatchEvent('click');
   if (await control.getAttribute('aria-expanded') === 'true') await control.dispatchEvent('click');
@@ -69,12 +66,16 @@ try {
     assert.equal(state.repository, 'Tutorial'); assert.equal(state.changes, 4); assert.equal(state.commits, 4); assert.match(state.head, /^[a-f0-9]{40}$/);
     await page.waitForFunction(() => gitspaceDiagnostics.frames > 0);
   });
-  await check('file inclusion supports mixed state and one-click select all', async () => {
-    // The recycled ListView peer represents each entire row as an option. Toggle
-    // its visible checkbox with a real pointer rather than requiring a child peer.
-    const row = page.getByRole('listbox', { name: 'Changed files', exact: true }).getByRole('option', { name: 'README.md', exact: true });
+  await check('file inclusion supports mixed state with exactly four recycled rows', async () => {
+    const list = page.getByRole('listbox', { name: 'Changed files', exact: true });
+    const row = list.getByRole('option', { name: 'README.md', exact: true });
     await row.waitFor({ state: 'attached' });
-    const box = await row.boundingBox(); assert.ok(box);
+    assert.equal(await list.getByRole('option').count(), 4, 'One realized row per tutorial file, no duplicates');
+    // Uno emits window-relative coordinates on nested semantic list peers. The
+    // DOM rectangle adds the parent's offset a second time; use the emitted
+    // window coordinates to send a real pointer into the rendered checkbox.
+    const box = await row.evaluate(e => ({ x: parseFloat(e.style.left), y: parseFloat(e.style.top), height: parseFloat(e.style.height) }));
+    assert.ok(Number.isFinite(box.x) && Number.isFinite(box.y) && box.height > 0);
     await page.mouse.click(box.x + 18, box.y + box.height / 2);
     await page.waitForFunction(() => document.querySelector('[aria-label="Select all changed files"]').getAttribute('aria-checked') === 'mixed');
     await click('Select all changed files', 'checkbox');
