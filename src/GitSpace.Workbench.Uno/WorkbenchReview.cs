@@ -41,6 +41,9 @@ public sealed partial class WorkbenchView
     private void UpdateReviewCommands()
     {
         if (_stageSelection is null || _diff is null) return;
+        // A theme rebuild keeps the diff but constructs new header controls.
+        // Restore the active path without replacing a binary-preview explanation.
+        if (_activePath.Length != 0 && _lastDiff?.Binary != true) _fileLabel.Text = _activePath;
         var partial = !_showHistory && _reviewMode != "all";
         var allowed = partial && !_loadingDiff && !_busy && _selection?.CanSelect == true && _lastDiff?.Binary != true;
         var staged = _reviewMode == "staged";
