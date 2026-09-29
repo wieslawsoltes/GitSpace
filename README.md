@@ -8,6 +8,8 @@
 [![Browser and Pages](https://github.com/wieslawsoltes/GitSpace/actions/workflows/pages.yml/badge.svg)](https://github.com/wieslawsoltes/GitSpace/actions/workflows/pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Uno Platform](https://img.shields.io/badge/Uno-6.7.30-7a67f8.svg)](https://www.nuget.org/packages/Uno.Sdk/6.7.30)
+[![NuGet](https://img.shields.io/nuget/vpre/GitSpace.Core.svg?label=NuGet)](https://www.nuget.org/packages/GitSpace.Core)
+[![Downloads](https://img.shields.io/nuget/dt/GitSpace.Core.svg)](https://www.nuget.org/packages/GitSpace.Core)
 
 [Open browser app](https://wieslawsoltes.github.io/GitSpace/) · [Architecture](docs/architecture.md) · [Compatibility](docs/compatibility.md) · [Build & release](docs/development.md)
 
@@ -82,24 +84,118 @@ Every [release](https://github.com/wieslawsoltes/GitSpace/releases/latest) ships
 
 Extract and run `GitSpace` (`GitSpace.exe` on Windows). **Git 2.30 or newer** must still be on `PATH`. Builds are not code-signed yet: on macOS clear the quarantine flag with `xattr -d com.apple.quarantine GitSpace`; on Windows choose **More info → Run anyway** in SmartScreen. Verify downloads against `SHA256SUMS`.
 
-The .NET libraries below are published to [NuGet.org](https://www.nuget.org/packages?q=GitSpace), e.g. `dotnet add package GitSpace.Diff`.
+## NuGet packages
 
-## Independently reusable components
+GitSpace ships as seven MIT-licensed .NET packages on [NuGet.org](https://www.nuget.org/packages?q=GitSpace), versioned together and published by `v*` tags with symbol packages (`.snupkg`) and SourceLink. The five engine packages target `net10.0` and have no UI dependency (only `GitSpace.Rendering.Skia` needs SkiaSharp); the two Uno packages target `net10.0-desktop` and `net10.0-browserwasm`. None of them depends on `GitSpace.App`. The browser Git backend (`src/GitSpace.BrowserGit`, `@gitspace/browser-git`, built on isomorphic-git, LightningFS and fflate) is not a NuGet package and is not on the npm registry; it is attached to each GitHub Release as an archive.
 
-The application composes seven NuGet libraries and one npm library. None of the reusable libraries depends on `GitSpace.App`.
+```sh
+dotnet add package GitSpace.Core
+```
 
-| Package | Responsibility | Depends on |
-| --- | --- | --- |
-| `GitSpace.Core` | Repository contracts, command/result models, JSON and path/ref validation | .NET |
-| `GitSpace.Diff` | Bounded Myers line diff, split alignment, intraline spans, viewport arithmetic | .NET |
-| `GitSpace.Git` | Asynchronous system Git process backend, status/history parsing, file safety | Core |
-| `GitSpace.Hosting.GitHub` | Bounded GitHub HTTP pull-request client | .NET HTTP/JSON |
-| `GitSpace.Rendering.Skia` | Framework-independent, viewport-only Skia diff renderer | Diff, SkiaSharp |
-| `GitSpace.Controls.Uno` | Custom buttons, toolbar tiles, file/history lists, commit composer, diff viewer and splitter | Core, Rendering.Skia, Uno |
-| `GitSpace.Workbench.Uno` | Complete embeddable client workspace and dialogs with injected platform/backend | Controls.Uno, Hosting.GitHub |
-| `@gitspace/browser-git` | Real worker-ready Git backend over an injected filesystem and HTTP client | isomorphic-git, LightningFS, fflate |
+| Package | Version | Downloads | Description |
+| --- | --- | --- | --- |
+| [GitSpace.Core](https://www.nuget.org/packages/GitSpace.Core) | [![NuGet](https://img.shields.io/nuget/vpre/GitSpace.Core.svg)](https://www.nuget.org/packages/GitSpace.Core) | [![Downloads](https://img.shields.io/nuget/dt/GitSpace.Core.svg)](https://www.nuget.org/packages/GitSpace.Core) | Repository contracts, request/result models, JSON and path/ref/remote safety validation |
+| [GitSpace.Diff](https://www.nuget.org/packages/GitSpace.Diff) | [![NuGet](https://img.shields.io/nuget/vpre/GitSpace.Diff.svg)](https://www.nuget.org/packages/GitSpace.Diff) | [![Downloads](https://img.shields.io/nuget/dt/GitSpace.Diff.svg)](https://www.nuget.org/packages/GitSpace.Diff) | Bounded Myers line diff, split alignment, line/hunk selection, conflict parsing and viewport arithmetic |
+| [GitSpace.Git](https://www.nuget.org/packages/GitSpace.Git) | [![NuGet](https://img.shields.io/nuget/vpre/GitSpace.Git.svg)](https://www.nuget.org/packages/GitSpace.Git) | [![Downloads](https://img.shields.io/nuget/dt/GitSpace.Git.svg)](https://www.nuget.org/packages/GitSpace.Git) | Asynchronous, shell-free system Git backend with cancellation, serialization and bounded output |
+| [GitSpace.Hosting.GitHub](https://www.nuget.org/packages/GitSpace.Hosting.GitHub) | [![NuGet](https://img.shields.io/nuget/vpre/GitSpace.Hosting.GitHub.svg)](https://www.nuget.org/packages/GitSpace.Hosting.GitHub) | [![Downloads](https://img.shields.io/nuget/dt/GitSpace.Hosting.GitHub.svg)](https://www.nuget.org/packages/GitSpace.Hosting.GitHub) | Bounded GitHub pull-request HTTP client with session-scoped credentials |
+| [GitSpace.Rendering.Skia](https://www.nuget.org/packages/GitSpace.Rendering.Skia) | [![NuGet](https://img.shields.io/nuget/vpre/GitSpace.Rendering.Skia.svg)](https://www.nuget.org/packages/GitSpace.Rendering.Skia) | [![Downloads](https://img.shields.io/nuget/dt/GitSpace.Rendering.Skia.svg)](https://www.nuget.org/packages/GitSpace.Rendering.Skia) | Framework-independent, viewport-only Skia unified/split diff renderer |
+| [GitSpace.Controls.Uno](https://www.nuget.org/packages/GitSpace.Controls.Uno) | [![NuGet](https://img.shields.io/nuget/vpre/GitSpace.Controls.Uno.svg)](https://www.nuget.org/packages/GitSpace.Controls.Uno) | [![Downloads](https://img.shields.io/nuget/dt/GitSpace.Controls.Uno.svg)](https://www.nuget.org/packages/GitSpace.Controls.Uno) | Uno toolbar tiles, changed-file and history lists, commit composer, conflict resolver, diff viewer and splitter |
+| [GitSpace.Workbench.Uno](https://www.nuget.org/packages/GitSpace.Workbench.Uno) | [![NuGet](https://img.shields.io/nuget/vpre/GitSpace.Workbench.Uno.svg)](https://www.nuget.org/packages/GitSpace.Workbench.Uno) | [![Downloads](https://img.shields.io/nuget/dt/GitSpace.Workbench.Uno.svg)](https://www.nuget.org/packages/GitSpace.Workbench.Uno) | Complete embeddable Git client workspace and dialogs with an injected platform and backend |
 
-Example without the application or Uno:
+Dependencies follow the real project references: `Core ← Git`, `Diff ← Rendering.Skia`, `Core + Rendering.Skia ← Controls.Uno`, `Controls.Uno + Hosting.GitHub ← Workbench.Uno`; `Core`, `Diff` and `Hosting.GitHub` have no GitSpace dependencies. Individual controls can be used without the workbench; see [architecture and embedding](docs/architecture.md).
+
+### GitSpace.Core
+
+The backend-neutral contract shared by the desktop backend, the browser worker and the UI: operation requests, results and repository snapshots, the `IGitBackend` interface, web-style JSON helpers and validation for relative paths, ref names, commit IDs and HTTPS remotes. Reference it to write another backend or to drive any backend headlessly. No dependencies and no UI.
+
+```sh
+dotnet add package GitSpace.Core
+```
+
+**Key types**
+
+- `IGitBackend` — `ExecuteAsync(GitRequest)`, `Capabilities` (supported operation names) and `DisplayName`.
+- `GitRequest` — an operation (`"open"`, `"diff"`, `"commit"`, …) with `Root`, `Path`, `Paths`, `Message`, `Value`, `ExpectedHead`.
+- `GitResult` / `GitSnapshot` — diff text and the repository state (`Branch`, `Changes`, `Commits`, `Branches`, `Remotes`, `Ahead`/`Behind`).
+- `GitChange`, `GitCommit`, `GitRemote`, `GitStash` — snapshot records.
+- `GitSafety` / `GitJson` / `GitText` — validation, serialization and line-ending helpers.
+
+**Usage**
+
+```csharp
+using GitSpace.Core;
+
+var request = new GitRequest("commit")
+{
+    Message = "Update documentation",
+    Paths = [GitSafety.RelativePath("docs/guide.md")],   // rejects absolute and ../ paths
+    Author = "Ada Lovelace",
+    Email = "ada@example.com"
+};
+string branch = GitSafety.Ref("feature/review");          // validated ref name
+string remote = GitSafety.HttpsRemote("https://github.com/wieslawsoltes/GitSpace.git");
+
+string json = GitJson.Serialize(request);                  // same wire format as the browser worker
+GitRequest roundTrip = GitJson.Deserialize<GitRequest>(json);
+var commit = new GitCommit("0123456789abcdef", "Ada", "ada@example.com", "2026-01-01", "Initial commit\n\nBody", []);
+Console.WriteLine($"{commit.ShortId} {commit.Summary}");
+```
+
+### GitSpace.Diff
+
+Pure text algorithms behind the review UI: a bounded Myers line diff that reports a coarse replacement instead of exceeding its work budget, split-view alignment, whitespace-insensitive comparison, exact line/hunk selection for partial staging, merge/diff3 conflict parsing and resolution, and viewport row arithmetic. No dependencies and no UI.
+
+```sh
+dotnet add package GitSpace.Diff
+```
+
+**Key types**
+
+- `DiffEngine.Compare` — returns a `DiffDocument` (`Lines`, `Additions`, `Deletions`, `Coarse`, `Split()`).
+- `DiffLine` / `SplitLine` / `DiffKind` — unified rows and aligned left/right pairs.
+- `LineSelection` — `HunkAt(row)` and `Apply(rows)` to build partially staged text, preserving line endings.
+- `ConflictDocument` — parses conflict markers into `ConflictBlock`s and `Resolve`s them.
+- `DiffEngine.VisibleRange` — first/last visible row for a scroll position.
+
+**Usage**
+
+```csharp
+using GitSpace.Diff;
+
+var before = "alpha\nbeta\ngamma\n";
+var after = "alpha\nBETA\ngamma\ndelta\n";
+
+DiffDocument diff = DiffEngine.Compare(before, after, ignoreWhitespace: false);
+Console.WriteLine($"+{diff.Additions} -{diff.Deletions}, coarse: {diff.Coarse}");
+foreach (var line in diff.Lines)
+    Console.WriteLine($"{line.Kind,-8} {line.OldLine,3} {line.NewLine,3}  {line.Text}");
+IReadOnlyList<SplitLine> sideBySide = diff.Split();
+
+// Stage only the hunk that touches row 1 (beta -> BETA), not the appended line.
+var selection = new LineSelection(before, after);
+string staged = selection.Apply(selection.HunkAt(1));
+
+var conflict = new ConflictDocument("<<<<<<< ours\nA\n=======\nB\n>>>>>>> theirs\n");
+string resolved = conflict.Resolve([ConflictChoice.Incoming]);   // "B\n"
+```
+
+### GitSpace.Git
+
+The desktop backend: runs the installed Git (2.30+) as an asynchronous, cancellable process with argument lists (no shell), hooks disabled, one command at a time per backend and bounded output, and parses porcelain status and history. It implements `IGitBackend` for review, staging, commits, history, branches, tags, stashes, remotes, synchronization, merge/rebase/revert/cherry-pick and conflicts. Depends on `GitSpace.Core`; no UI. Only open repositories you trust: Git configuration, filters and helpers can still run programs.
+
+```sh
+dotnet add package GitSpace.Git
+```
+
+**Key types**
+
+- `DesktopGitBackend` — `IGitBackend` over system Git; check `Capabilities` for supported operations.
+- `GitProcess` — low-level `RunAsync(directory, arguments)` returning `GitProcessResult`.
+- `StatusParser` — `Parse` porcelain status into `GitChange[]`, `Log` into `GitCommit[]`.
+- `GitCommandException` — a failed Git command with its `ExitCode`.
+- `RepositoryPath` — canonical repository directory comparison.
+
+**Usage**
 
 ```csharp
 using GitSpace.Core;
@@ -118,9 +214,169 @@ var diff = await git.ExecuteAsync(new GitRequest("diff")
 {
     Path = "README.md"
 });
+Console.WriteLine(diff.Binary ? "binary file" : $"{diff.Before.Length} -> {diff.After.Length} chars");
+
+await git.ExecuteAsync(new GitRequest("commit")
+{
+    Message = "Update README",
+    Paths = ["README.md"],
+    ExpectedHead = opened.Snapshot.Head          // refuse if HEAD moved meanwhile
+});
 ```
 
-To embed the complete UI, provide an `IWorkbenchPlatform` with an `IGitBackend`, preferences persistence and external-navigation/download adapters, construct `WorkbenchView`, attach it to a window, then await `InitializeAsync()`. Individual controls can also be used without the workbench. See [architecture and embedding](docs/architecture.md).
+### GitSpace.Hosting.GitHub
+
+A small GitHub REST client for pull requests: list the first 100 open pull requests and create one, with explicit API version headers, a 4 MiB response limit and a token passed per call (never stored). Bring your own `HttpClient`. No GitSpace dependencies and no UI.
+
+```sh
+dotnet add package GitSpace.Hosting.GitHub
+```
+
+**Key types**
+
+- `GitHubClient` — `ListPullRequestsAsync`, `CreatePullRequestAsync` over a caller-owned `HttpClient`.
+- `GitHubClient.TryParseRemote` — extracts owner/repository from a GitHub remote URL.
+- `PullRequest` — number, title, author, head/base branches, URL and draft flag.
+
+**Usage**
+
+```csharp
+using GitSpace.Hosting.GitHub;
+
+using var http = new HttpClient();
+var github = new GitHubClient(http);
+
+if (GitHubClient.TryParseRemote("https://github.com/wieslawsoltes/GitSpace.git", out var owner, out var repository))
+{
+    foreach (PullRequest pr in await github.ListPullRequestsAsync(owner, repository))
+        Console.WriteLine($"#{pr.Number} {pr.Title} ({pr.Head} -> {pr.Base}){(pr.Draft ? " draft" : "")}");
+
+    string token = Environment.GetEnvironmentVariable("GITHUB_TOKEN") ?? "";
+    // PullRequest created = await github.CreatePullRequestAsync(owner, repository, "Title", "feature/x", "main", "Body", token);
+}
+```
+
+### GitSpace.Rendering.Skia
+
+Draws a `DiffDocument` onto any `SKCanvas` as a unified or split diff with line-number gutters, addition/deletion colors, intraline emphasis, row selection and light/dark palettes. Only visible rows are visited; paints, fonts, text runs and split alignment are cached. Use it to render diffs without Uno. Depends on `GitSpace.Diff` and SkiaSharp 3.119; no UI framework.
+
+```sh
+dotnet add package GitSpace.Rendering.Skia
+```
+
+**Key types**
+
+- `DiffRenderer` — `SetDocument`, `Draw(canvas, bounds, viewport)`, `RowCount(split)`, frame statistics; `DefaultTypeface`.
+- `DiffViewport` — scroll offsets, `FontSize`/`RowHeight`, `Split`, selected rows and `Palette`.
+- `DiffPalette` — `Dark` and `Light` color sets, or your own.
+
+**Usage**
+
+```csharp
+using GitSpace.Diff;
+using GitSpace.Rendering.Skia;
+using SkiaSharp;
+
+var diff = DiffEngine.Compare("alpha\nbeta\n", "alpha\nBETA\ngamma\n");
+
+using var renderer = new DiffRenderer();
+renderer.SetDocument(diff);
+var view = new DiffViewport { Split = true, FontSize = 13, Palette = DiffPalette.Light };
+
+using var surface = SKSurface.Create(new SKImageInfo(1000, 240));
+renderer.Draw(surface.Canvas, new SKRect(0, 0, 1000, 240), view);
+Console.WriteLine($"{renderer.RowCount(view.Split)} rows, {renderer.LastVisibleRows} visible");
+
+using var png = surface.Snapshot().Encode(SKEncodedImageFormat.Png, 100);
+File.WriteAllBytes("diff.png", png.ToArray());
+```
+
+### GitSpace.Controls.Uno
+
+Compact custom Uno Platform controls for Git clients: an `SKCanvasElement`-based `DiffViewer` with scrollbars, selection, find and copy; changed-file list with inclusion checkboxes; paged history list; commit composer; conflict resolver; repository tiles, buttons, segmented selectors, icons, pane splitter and a light/dark `GitTheme`. Depends on Core and Rendering.Skia; requires Uno Platform (Skia renderer).
+
+```sh
+dotnet add package GitSpace.Controls.Uno
+```
+
+**Key types**
+
+- `DiffViewer` — `SetDocument`, `SetSplit`, `Zoom`, `FindNext`, `CopySelection`, `SelectedChangedRows`.
+- `ChangedFilesView` — `SetFiles`, `SelectedPaths`, `FileSelected`.
+- `HistoryView` — `SetCommits`, `CommitSelected`, `LoadMoreRequested`.
+- `CommitComposer` — summary/description boxes, `Message`, `CommitRequested`.
+- `ConflictResolver`, `RepositoryTile`, `GitButton`, `PaneSplitter`, `GitTheme` — dialogs and chrome.
+
+**Usage**
+
+```csharp
+using GitSpace.Controls.Uno;
+using GitSpace.Core;
+using GitSpace.Diff;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+
+var files = new ChangedFilesView { Width = 280 };
+files.SetFiles([new GitChange("README.md"), new GitChange("docs/guide.md", "A")], active: "README.md");
+
+var diff = new DiffViewer();
+diff.SetDocument(DiffEngine.Compare("alpha\nbeta\n", "alpha\nBETA\n"));
+diff.SetSplit(true);
+files.FileSelected += (_, path) => Console.WriteLine("show diff for " + path);
+
+var root = new Grid();
+root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+root.ColumnDefinitions.Add(new ColumnDefinition());
+root.Children.Add(files);
+root.Children.Add(diff);
+Grid.SetColumn(diff, 1);
+
+var window = new Window { Title = "Changes", Content = root };
+window.Activate();
+```
+
+### GitSpace.Workbench.Uno
+
+The complete GitHub Desktop-style workspace as one `Grid`: toolbar tiles, Changes/History tabs, commit composer, diff workspace, dialogs for repositories, remotes, stashes, pull requests, conflicts and preferences, and busy/error handling. Hosts inject an `IWorkbenchPlatform` that supplies the `IGitBackend` (for example `DesktopGitBackend`), preference storage, external navigation and downloads; `DisposeAsync` also disposes the backend. Depends on Controls.Uno and Hosting.GitHub; requires Uno Platform.
+
+```sh
+dotnet add package GitSpace.Workbench.Uno
+```
+
+**Key types**
+
+- `WorkbenchView` — `InitializeAsync`, `Snapshot`, `IsReady`/`IsBusy`, `Diff`, `StateChanged`, `RefreshOnActivationAsync`, `DisposeAsync`.
+- `IWorkbenchPlatform` — `Backend`, `IsBrowser`, preferences, `OpenExternalAsync`, `DownloadAsync`.
+- `WorkspacePreferences` — author identity, recent repositories, theme and diff options (non-secret).
+
+**Usage**
+
+```csharp
+using GitSpace.Core;
+using GitSpace.Git;
+using GitSpace.Workbench.Uno;
+using Microsoft.UI.Xaml;
+
+sealed class DesktopPlatform : IWorkbenchPlatform
+{
+    private WorkspacePreferences _preferences = new() { Author = "Ada Lovelace", Email = "ada@example.com" };
+    public IGitBackend Backend { get; } = new DesktopGitBackend();
+    public bool IsBrowser => false;
+    public Task<WorkspacePreferences> LoadPreferencesAsync() => Task.FromResult(_preferences);
+    public Task SavePreferencesAsync(WorkspacePreferences preferences) { _preferences = preferences; return Task.CompletedTask; }
+    public Task OpenExternalAsync(string httpsUrl) => Task.CompletedTask;          // launch a browser here
+    public Task DownloadAsync(string fileName, string base64Content) =>
+        File.WriteAllBytesAsync(fileName, Convert.FromBase64String(base64Content));
+}
+
+// In Application.OnLaunched:
+var window = new Window { Title = "GitSpace" };
+var workbench = new WorkbenchView(new DesktopPlatform());
+window.Content = workbench;
+window.Activate();
+await workbench.InitializeAsync();
+window.Closed += async (_, _) => await workbench.DisposeAsync();
+```
 
 ## Rendering and performance
 
