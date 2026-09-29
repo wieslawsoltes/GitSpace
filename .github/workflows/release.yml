@@ -3,49 +3,124 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version for a dry run (tags publish; manual runs only build and upload artifacts)
+        required: true
+        default: '0.1.0'
 permissions:
   contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  APP_NAME: GitSpace
+  APP_PROJECT: src/GitSpace.App
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
 jobs:
-  desktop:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        name: Resolve release version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        shell: bash
+        run: |
+          VERSION="$INPUT_VERSION"
+          if [ "$REF_TYPE" = tag ]; then VERSION="${REF_NAME#v}"; fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version '$VERSION'" >&2; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  git-tests:
+    name: Portable and Git tests (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            rid: win-x64
-          - os: ubuntu-latest
-            rid: linux-x64
-          - os: macos-latest
-            rid: osx-arm64
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
       - name: Portable and Git tests
         run: dotnet run --project tests/GitSpace.Tests -c Release
-      - name: Publish self-contained desktop application
-        run: dotnet publish src/GitSpace.App -f net10.0-desktop -c Release -r ${{ matrix.rid }} --self-contained true -p:GitSpaceTargetFrameworks=net10.0-desktop -o artifacts/desktop
-      - name: Archive desktop distribution
-        shell: bash
-        run: |
-          python - <<'PY'
-          import shutil
-          shutil.copy2('LICENSE', 'artifacts/desktop/LICENSE')
-          shutil.copy2('THIRD-PARTY-NOTICES.md', 'artifacts/desktop/THIRD-PARTY-NOTICES.md')
-          shutil.make_archive('artifacts/GitSpace-${{ matrix.rid }}', 'zip', 'artifacts/desktop')
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.rid }}
-          path: artifacts/GitSpace-${{ matrix.rid }}.zip
-  packages:
+
+  desktop:
+    name: Desktop (${{ matrix.rid }})
+    needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, osx-arm64]
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      RID: ${{ matrix.rid }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish self-contained single-file executable
+        shell: bash
+        run: |
+          dotnet publish "$APP_PROJECT" -c Release -f net10.0-desktop -r "$RID" --self-contained true \
+            -p:GitSpaceTargetFrameworks=net10.0-desktop \
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true \
+            -p:DebugType=none -p:DebugSymbols=false -p:Version="$VERSION" \
+            -o "artifacts/desktop/$RID"
+      - name: Package executable
+        shell: bash
+        run: |
+          OUT="artifacts/desktop/$RID"
+          find "$OUT" -name '*.pdb' -delete
+          mkdir -p artifacts/dist
+          BASE="$APP_NAME-$VERSION-$RID"
+          if [[ "$RID" == win-* ]]; then
+            mv "$OUT/$APP_NAME.App.exe" "$OUT/$APP_NAME.exe"
+            test "$(find "$OUT" -type f | wc -l)" -eq 1
+            (cd "$OUT" && zip -q "$GITHUB_WORKSPACE/artifacts/dist/$BASE.zip" "$APP_NAME.exe")
+          else
+            mv "$OUT/$APP_NAME.App" "$OUT/$APP_NAME"
+            chmod +x "$OUT/$APP_NAME"
+            test "$(find "$OUT" -type f | wc -l)" -eq 1
+            tar -C "$OUT" -czf "artifacts/dist/$BASE.tar.gz" "$APP_NAME"
+          fi
+          ls -la artifacts/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.rid }}
+          path: artifacts/dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [version, git-tests, desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -57,35 +132,87 @@ jobs:
       - run: dotnet workload install wasm-tools --skip-manifest-update
       - run: dotnet run --project tests/GitSpace.Tests -c Release
       - name: Browser backend and packages
+        shell: bash
         run: |
           npm ci --prefix src/GitSpace.BrowserGit --no-audit --no-fund
           npm test --prefix src/GitSpace.BrowserGit
           npm run build --prefix src/GitSpace.BrowserGit
           mkdir -p artifacts/packages
-          for project in Core Diff Git Hosting.GitHub Rendering.Skia Controls.Uno Workbench.Uno; do
-            dotnet pack "src/GitSpace.$project/GitSpace.$project.csproj" -c Release -o artifacts/packages
+          # Only .NET projects become NuGet packages; the npm backend (no .csproj) is packed as an archive below.
+          for project in src/*/*.csproj; do
+            case "$project" in *.App.csproj) continue;; esac
+            dotnet pack "$project" -c Release -p:Version="$VERSION" -o artifacts/packages
           done
           npm pack ./src/GitSpace.BrowserGit --pack-destination artifacts/packages
           python3 tools/verify-packages.py artifacts/packages
           git archive --format=zip -o artifacts/packages/GitSpace-source.zip HEAD
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: artifacts/dist
+          merge-multiple: true
+      - name: Generate release checksums
+        shell: bash
+        run: |
+          cp artifacts/packages/*.nupkg artifacts/packages/*.tgz artifacts/packages/GitSpace-source.zip artifacts/dist/
+          (cd artifacts/dist && sha256sum * > SHA256SUMS)
+          cat artifacts/dist/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: release-packages
-          path: artifacts/packages
-  publish:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [desktop, packages]
+          name: gitspace-release
+          path: artifacts/dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
+          if-no-files-found: error
+      - name: Publish GitHub release for version tag
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          PRE=()
+          case "$VERSION" in *-*) PRE=(--prerelease);; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" artifacts/dist/* --clobber
+          else
+            gh release create "$TAG" artifacts/dist/* --verify-tag --title "GitSpace $TAG" --generate-notes "${PRE[@]}"
+          fi
+
+  nuget:
+    name: Publish to NuGet.org (Trusted Publishing)
+    needs: [version, release]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: nuget
     permissions:
-      contents: write
+      id-token: write
+      contents: read
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: release-*
-          merge-multiple: true
-          path: artifacts/release
-      - name: Publish GitHub release with build artifacts
+          name: nuget-packages
+          path: packages
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Check NuGet user
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: gh release create "${GITHUB_REF_NAME}" artifacts/release/* --title "GitSpace ${GITHUB_REF_NAME}" --generate-notes --prerelease
+          NUGET_USER: ${{ vars.NUGET_USER || secrets.NUGET_USER }}
+        run: test -n "$NUGET_USER" || { echo 'Set the NUGET_USER variable (your nuget.org profile name) for this repository or its nuget environment.' >&2; exit 1; }
+      - name: NuGet login (OIDC → short-lived API key)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER || secrets.NUGET_USER }}
+      - name: Push packages
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: dotnet nuget push "packages/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate

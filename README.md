@@ -70,6 +70,20 @@ Only open repositories you trust. GitSpace disables repository hooks for its com
 
 There is no force-push button, automatic destructive conflict resolution, or fake successful operation behind an unsupported menu item.
 
+## Download
+
+Every [release](https://github.com/wieslawsoltes/GitSpace/releases/latest) ships a self-contained, single-file desktop app — no .NET install needed:
+
+| OS | x64 | Arm64 |
+| --- | --- | --- |
+| Windows | `GitSpace-<version>-win-x64.zip` | `GitSpace-<version>-win-arm64.zip` |
+| macOS | `GitSpace-<version>-osx-x64.tar.gz` | `GitSpace-<version>-osx-arm64.tar.gz` |
+| Linux | `GitSpace-<version>-linux-x64.tar.gz` | `GitSpace-<version>-linux-arm64.tar.gz` |
+
+Extract and run `GitSpace` (`GitSpace.exe` on Windows). **Git 2.30 or newer** must still be on `PATH`. Builds are not code-signed yet: on macOS clear the quarantine flag with `xattr -d com.apple.quarantine GitSpace`; on Windows choose **More info → Run anyway** in SmartScreen. Verify downloads against `SHA256SUMS`.
+
+The .NET libraries below are published to [NuGet.org](https://www.nuget.org/packages?q=GitSpace), e.g. `dotnet add package GitSpace.Diff`.
+
 ## Independently reusable components
 
 The application composes seven NuGet libraries and one npm library. None of the reusable libraries depends on `GitSpace.App`.
@@ -135,9 +149,9 @@ dotnet publish src/GitSpace.App -f net10.0-browserwasm -c Release \
 python3 tools/prepare-pages.py artifacts/browser artifacts/site
 ```
 
-**Build and test** compiles the desktop app on Linux, Windows and macOS, and runs portable/system-Git/browser-backend tests. **Browser and Pages** builds WebAssembly, executes real Chromium UI workflows, packages the libraries, and deploys the tested output. It verifies the public `build-info.json` commit and the worker asset after deployment. **Release** builds self-contained desktop distributions and reusable library packages for `v*` tags. Release binaries are unsigned development artifacts; notarization and installer/auto-update infrastructure are not implemented.
+**Build and test** compiles the desktop app on Linux, Windows and macOS, and runs portable/system-Git/browser-backend tests. **Browser and Pages** builds WebAssembly, executes real Chromium UI workflows, packages the libraries, and deploys the tested output. It verifies the public `build-info.json` commit and the worker asset after deployment. **Release** runs the portable/Git tests on Windows, Linux and macOS, publishes self-contained single-file desktop executables for Windows, macOS and Linux (x64 and arm64), packs the libraries with symbols and emits `SHA256SUMS`. `v*` tags attach all assets to a GitHub Release and publish the NuGet packages to NuGet.org with [Trusted Publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing) (OIDC, no stored API key) from the protected `nuget` environment; manual runs are dry runs that only upload workflow artifacts. Release binaries are unsigned development artifacts; notarization and installer/auto-update infrastructure are not implemented.
 
-Successful workflow runs expose source, browser, screenshots/test reports, and reusable-package artifacts. Packages are generated as artifacts; publishing to NuGet.org or npm is not automatic. The [build guide](docs/development.md) describes local hosting and release use.
+Successful workflow runs expose source, browser, screenshots/test reports, and reusable-package artifacts. Version tags publish the seven NuGet libraries to NuGet.org; the `@gitspace/browser-git` npm package is attached to the release as an archive and is not published to npm. The [build guide](docs/development.md) describes local hosting and release use.
 
 ## Safety, compatibility and contribution
 
